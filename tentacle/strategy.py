@@ -36,8 +36,8 @@ class Strategy(object):
             return old
         if len(moves) == 1:
             return moves[0]
-        index, value = max(enumerate(moves), key=lambda m: self.board_value(m, context))
-        return value
+        board_most_value = max(moves, key=lambda m: self.board_value(m, context))
+        return board_most_value
         
     def board_value(self, board, context):
         '''estimate the value of board
@@ -65,7 +65,7 @@ class StrategyProb(Strategy):
     
     def board_value(self, board, context):
         self.board_probabilities(board, context)
-        return self.probs[0] * board.N
+        return self.probs[0]
         
         
 class StrategyTDBase(StrategyProb):
@@ -118,7 +118,7 @@ class StrategyTD(StrategyTDBase):
 #         print(np.shape(self.output_weights))
         
     def board_probabilities(self, board, context):
-        inputs = self.get_input_values(board, context)
+        inputs = self.get_input_values(board)
         hiddens = self.get_hidden_values(inputs)
         prob_win = self.get_output(hiddens)
         self.probs[0] = prob_win
@@ -131,7 +131,7 @@ class StrategyTD(StrategyTDBase):
             the input vector
         '''
 #         print('boar.stone shape: ' + str(board.stones.shape))
-        v = board.stones.ravel()
+        v = board.stones
 #         print('vectorized board shape: ' + str(v.shape))
         
         black = np.count_nonzero(board.stones == Board.STONE_BLACK)
@@ -160,14 +160,20 @@ class StrategyTD(StrategyTDBase):
     def needs_update(self):
         return self.is_learning
     
+    def _update_row_hidden_traces(self, row, out_weight, hidden_value, old_output):
+        row = self.lambdaa * row + out_weight * hidden_value * (1 - hidden_value) * old_output * (1 - old_output)
+        return row
+
     def update(self, old, new):        
         old_inputs = self.get_input_values(old)
         old_hiddens = self.get_hidden_values(old_inputs)
         old_output = self.get_output(old_hiddens)
-        print(old_output)
+#         print(old_output)
         
 #         update traces
-#         self.output_traces = self.lambdaa * self.output_traces + ( old_hiddens.at(i) - old_hiddens.at(hidden_neurons_num-1) ) * old_output * ( 1 - old_output )
+        self.output_traces = self.lambdaa * self.output_traces + old_output * (1 - old_output)
+        for i in range(old_hiddens.shape[0]):
+            self._update_row_hidden_traces(self.hidden_traces[i], self.output_weights[0, i], old_hiddens[i], old_output[0])
         
         over, winner = new.is_over()
         if over:

@@ -20,7 +20,7 @@ class Board(object):
     BOARD_SIZE = 9
     
     def __init__(self):
-        self.stones = np.zeros((Board.BOARD_SIZE, Board.BOARD_SIZE), np.int)
+        self.stones = np.zeros(Board.BOARD_SIZE ** 2, np.int)
 #         self.stones = np.random.rand(N, N)
         
     def show(self):
@@ -42,10 +42,9 @@ class Board(object):
         ax.yaxis.set_major_locator(ticker.MultipleLocator(1))
         
         plt.draw()
-        plt.pause(0.001)
 
     def move(self, x, y, v):
-        if v != 1 and v != 2:
+        if v != Board.STONE_BLACK and v != Board.STONE_WHITE:
             raise Exception('illegal arg v[%d]' % (v))
         if self.stones[x, y] != 0:
             raise Exception('cannot move here')

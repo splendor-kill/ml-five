@@ -6,10 +6,11 @@ from tentacle.game import Game
 from tentacle.strategy import StrategyTD
 
 def sim1():
-    Board.BOARD_SIZE = 9
+    Board.BOARD_SIZE = 7
     board = Board()
      
-    s1 = StrategyTD(83, 41)
+    s1 = StrategyTD(51, 25)
+    
     
     s1.alpha = 0.1
     s1.beta = 0.1
