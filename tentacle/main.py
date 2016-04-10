@@ -21,9 +21,9 @@ def sim1():
     for i in range(1):
         g = Game(board, s1, s1)
         g.step_to_end()
-        win1 += 1 if g.winner() == 1 else 0
-        win2 += 1 if g.winner() == 2 else 0
-        draw += 1 if g.winner() == 0 else 0
+        win1 += 1 if g.winner == Board.STONE_BLACK else 0
+        win2 += 1 if g.winner == Board.STONE_WHITE else 0
+        draw += 1 if g.winner == Board.STONE_NOTHING else 0
          
         
     

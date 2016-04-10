@@ -11,34 +11,31 @@ class Game(object):
         self.verbose = True
         self.winner = 0
         self.context = {}
+        self.old_board = None
 
     def step(self):
-        old_board = self.board
-        
         moves = self.possible_moves(self.board)
 
         black_turn = self.step_counter % 2 == 0
-        board = self.strat.preferred_board(old_board, moves, {"black": black_turn})
-        print(board.stones)
+        board = self.strat.preferred_board(self.board, moves, {"black": black_turn})
+#         print(self.board.stones)
 
         if self.strat.needs_update():
-            self.strat.update(old_board, board)
+            self.strat.update(self.board, board)
+
+        self.old_board = self.board
+        self.board = board
 
         self.step_counter += 1
 
-
     def step_to_end(self):
-        while not self.is_game_over():
+        while True:
+            over, winner = self.board.is_over(self.old_board)
+            if over:
+                self.winner = winner
+                break
+            print()
             self.step()
-
-
-    def is_game_over(self):
-        return self.board.is_over()[0]
-
-    def winner(self):
-        if not self.is_game_over():
-            raise Exception('no ending')
-        return self.board.winner()
 
     def _whose_turn(self, board):
         '''
@@ -48,16 +45,15 @@ class Game(object):
             it is your turn
         '''
         stat = np.bincount(board.stones, minlength=3)
+        print('stone stat.')
         print(stat)
 
         if  stat[Board.STONE_NOTHING] == 0:
             return Board.STONE_NOTHING  # end
-        if stat[Board.STONE_BLACK] == 0 and stat[Board.STONE_WHITE] == 0:
-            return Board.STONE_BLACK  # black first
-        if  stat[Board.STONE_BLACK] + 1 == stat[Board.STONE_WHITE]:
-            return Board.STONE_BLACK  # turn to black
+        if  stat[Board.STONE_BLACK] == stat[Board.STONE_WHITE]:
+            return Board.STONE_BLACK  # black first, turn to black
         if  stat[Board.STONE_BLACK] == stat[Board.STONE_WHITE] + 1:
-            return Board.STONE_BLACK  # turn to while
+            return Board.STONE_WHITE  # turn to while
         raise Exception("illegal state")
 
 

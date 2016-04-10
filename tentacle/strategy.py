@@ -175,7 +175,7 @@ class StrategyTD(StrategyTDBase):
         for i in range(old_hiddens.shape[0]):
             self._update_row_hidden_traces(self.hidden_traces[i], self.output_weights[0, i], old_hiddens[i], old_output[0])
         
-        over, winner = new.is_over()
+        over, winner = new.is_over(old)
         if over:
             new_output = 1 if winner == Board.STONE_BLACK else 0
         else:
