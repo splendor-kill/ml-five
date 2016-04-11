@@ -9,7 +9,7 @@ class Game(object):
         self.strat2 = strat2
         self.step_counter = 0
         self.verbose = True
-        self.winner = 0
+        self.winner = Board.STONE_NOTHING
         self.context = {}
         self.old_board = None
 
@@ -19,6 +19,8 @@ class Game(object):
         black_turn = self.step_counter % 2 == 0
         board = self.strat.preferred_board(self.board, moves, {"black": black_turn})
 #         print(self.board.stones)
+
+        self.over, self.winner = board.is_over(self.board)
 
         if self.strat.needs_update():
             self.strat.update(self.board, board)
@@ -30,12 +32,10 @@ class Game(object):
 
     def step_to_end(self):
         while True:
-            over, winner = self.board.is_over(self.old_board)
-            if over:
-                self.winner = winner
+            self.step()            
+            if self.over:
                 break
             print()
-            self.step()
 
     def _whose_turn(self, board):
         '''
