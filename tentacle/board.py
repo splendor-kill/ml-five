@@ -28,7 +28,7 @@ class Board(object):
 #         self.stones = np.random.rand(N, N)
         self.over = False
         self.winner = Board.STONE_NOTHING
-
+        
     def show(self):
         fig = plt.figure()
         ax = fig.add_subplot(111)
@@ -116,6 +116,8 @@ class Board(object):
         winner: int
             the winner if the game is over, 0 if end with draw,
             None if the game is not over
+        loc: int
+            where is the piece placed
         '''
         print('old:')
         if old_board is None:
@@ -125,7 +127,7 @@ class Board(object):
         print('new:')
         print(self.stones.reshape(-1, Board.BOARD_SIZE))
         if old_board is None:  # at the beginning
-            return False, None
+            return False, None, None
         diff = np.where((old_board.stones != self.stones))[0]
         if diff.size == 0:
             raise Exception('same state')
@@ -146,11 +148,11 @@ class Board(object):
         if win:
             self.over = True
             self.winner = who                     
-            return True, who
+            return True, who, loc
 
         if np.where(self.stones == 0)[0].size == 0:  # the last step
             self.over = True
-            return True, Board.STONE_NOTHING
+            return True, Board.STONE_NOTHING, loc
 
-        return False, None
+        return False, None, loc
 

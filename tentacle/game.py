@@ -3,7 +3,7 @@ from tentacle.board import Board
 
 
 class Game(object):
-    def __init__(self, board, strat1, strat2):
+    def __init__(self, board, strat1, strat2, gui=None):
         self.board = board
         self.strat = strat1
         self.strat2 = strat2
@@ -12,15 +12,18 @@ class Game(object):
         self.winner = Board.STONE_NOTHING
         self.context = {}
         self.old_board = None
+        self.gui = gui
+        self.whose_turn = Board.STONE_NOTHING
+        self.last_loc = None
+        self.wait_human = False
 
     def step(self):
-        moves = self.possible_moves(self.board)
+        moves, self.whose_turn = self.possible_moves(self.board)
 
-        black_turn = self.step_counter % 2 == 0
-        board = self.strat.preferred_board(self.board, moves, {"black": black_turn})
+        board = self.strat.preferred_board(self.board, moves, {"game": self})
 #         print(self.board.stones)
 
-        self.over, self.winner = board.is_over(self.board)
+        self.over, self.winner, self.last_loc = board.is_over(self.board)
 
         if self.strat.needs_update():
             self.strat.update(self.board, board)
@@ -32,7 +35,9 @@ class Game(object):
 
     def step_to_end(self):
         while True:
-            self.step()            
+            self.step()
+            if self.gui is not None:
+                self.gui.show(self)
             if self.over:
                 break
             print()
@@ -79,4 +84,4 @@ class Game(object):
             boards.append(b)
 
         print('possible moves[%d]' % len(boards))
-        return boards
+        return boards, who

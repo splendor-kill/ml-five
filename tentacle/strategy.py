@@ -1,6 +1,7 @@
 import numpy as np
 from scipy.special import expit
 from tentacle.board import Board
+import matplotlib.pyplot as plt
 
 
 class Strategy(object):
@@ -220,8 +221,22 @@ class StrategyHuman(Strategy):
         super().__init__()
         
     def preferred_board(self, old, moves, context):
-#         interacte with ui
-#         check the new board
-        pass
+        if 'game' not in context:
+            return
+        
+        game = context['game']
+        game.wait_human = True
+       
+        while True:
+            plt.waitforbuttonpress()
+            if game.gui.cur_i and game.gui.cur_j:
+                loc = game.gui.cur_i * Board.BOARD_SIZE + game.gui.cur_j
+                if old.stones[loc] == Board.STONE_NOTHING:
+                    game.wait_human = False
+                    return [b for b in moves if b.stone[loc] != Board.STONE_NOTHING][0]
+                        
+        
+        
+        
         
   
