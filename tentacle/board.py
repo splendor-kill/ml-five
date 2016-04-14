@@ -18,7 +18,7 @@ class Board(object):
     STONE_NOTHING = 0
     STONE_BLACK = 1
     STONE_WHITE = 2
-    BOARD_SIZE = 9
+    BOARD_SIZE = 7
     WIN_STONE_NUM = 5
     WIN_PATTERN = {STONE_BLACK: np.ones(WIN_STONE_NUM, dtype=int) * STONE_BLACK,
                    STONE_WHITE: np.ones(WIN_STONE_NUM, dtype=int) * STONE_WHITE}
@@ -28,7 +28,7 @@ class Board(object):
 #         self.stones = np.random.rand(N, N)
         self.over = False
         self.winner = Board.STONE_NOTHING
-        
+
     def show(self):
         fig = plt.figure()
         ax = fig.add_subplot(111)
@@ -80,12 +80,12 @@ class Board(object):
         indexes: array
             all occurs of sub in seq
         '''
-        print('sub seq find:')
-        print(seq)
-        print(sub)
-        
+#         print('sub seq find:')
+#         print(seq)
+#         print(sub)
+
         assert seq.size >= sub.size
-        
+
         target = np.dot(sub, sub)
         candidates = np.where(np.correlate(seq, sub) == target)[0]
         # some of the candidates entries may be false positives, double check
@@ -119,13 +119,13 @@ class Board(object):
         loc: int
             where is the piece placed
         '''
-        print('old:')
-        if old_board is None:
-            print(old_board)
-        else:
-            print(old_board.stones.reshape(-1, Board.BOARD_SIZE))
-        print('new:')
-        print(self.stones.reshape(-1, Board.BOARD_SIZE))
+#         print('old:')
+#         if old_board is None:
+#             print(old_board)
+#         else:
+#             print(old_board.stones.reshape(-1, Board.BOARD_SIZE))
+#         print('new:')
+#         print(self.stones.reshape(-1, Board.BOARD_SIZE))
         if old_board is None:  # at the beginning
             return False, None, None
         diff = np.where((old_board.stones != self.stones))[0]
@@ -147,7 +147,7 @@ class Board(object):
         win = self.find_conn_5(grid, row, col, who)
         if win:
             self.over = True
-            self.winner = who                     
+            self.winner = who
             return True, who, loc
 
         if np.where(self.stones == 0)[0].size == 0:  # the last step

@@ -1,6 +1,7 @@
-import matplotlib
-matplotlib.use('Qt4Agg')
-import numpy as np
+# import matplotlib
+# print(matplotlib.get_backend())
+# print(matplotlib.is_interactive())
+# matplotlib.use('Qt4Agg')
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 import copy
@@ -11,12 +12,14 @@ from tentacle.strategy import StrategyTD
 from tentacle.strategy import StrategyHuman
 
 
-
 class Gui(object):
     STATE_IDLE = 0
     STATE_TRAINING = 1
     STATE_PLAY = 2
-    
+    RESULT_MSG = {Board.STONE_BLACK: 'Black Win',
+                  Board.STONE_WHITE: 'White Win',
+                  Board.STONE_NOTHING: 'Draw'}
+
     def __init__(self, board):
         self.board = board
         size = Board.BOARD_SIZE
@@ -32,6 +35,7 @@ class Gui(object):
                                     yticklabels=range(1, 1 + size)
                                    )
         self.ax.grid(color='k', linestyle='-', linewidth=1)
+        self.ax.set_title('press T for training')
 
         self.black_stone = patches.Circle((0, 0), .45,
                                           facecolor='#131814', edgecolor=(.8, .8, .8, 1),
@@ -39,15 +43,16 @@ class Gui(object):
         self.white_stone = copy.copy(self.black_stone)
         self.white_stone.set_facecolor('#FCF5F4')
         self.white_stone.set_edgecolor((.5, .5, .5))
-        
+
         self.fig.canvas.mpl_connect('key_press_event', self._key_press)
-        self.fig.canvas.mpl_connect('button_press_event', self._button_press)
-        
+#         self.fig.canvas.mpl_connect('button_press_event', self._button_press)
+
         self.state = Gui.STATE_IDLE
         self.strategy_1 = None
+        self.strategy_2 = None
         self.game = None
-        self.cur_i = None
-        self.cur_j = None
+        self.all_stones = []
+        
 
     def _key_press(self, event):
         print('press', event.key)
@@ -58,8 +63,11 @@ class Gui(object):
             # edit mode
             pass
         elif event.key == 'l':
-            # load strategy
-            pass
+            feat = Board.BOARD_SIZE ** 2 + 2
+            self.strategy_1 = StrategyTD(feat, feat // 2)           
+            self.strategy_1.load('./brain1.npz')
+        elif event.key == 'f':
+            self.strategy_1.save('./brain1.npz')
         elif event.key == 't':
             self.state = Gui.STATE_TRAINING
             self.train()
@@ -80,34 +88,38 @@ class Gui(object):
     def _button_press(self, event):
         if self.state != Gui.STATE_PLAY:
             return
-                    
         if not self.game.wait_human:
             return
-
         if (event.xdata is None) or (event.ydata is None):
             return
-        
-        self.i, self.j = map(round, (event.xdata, event.ydata))
+        i, j = map(round, (event.xdata, event.ydata))
+        print('click at(%d, %d)' % (i, j))
 
-
-#         print('click at(%d, %d)' % (i, j))
-        
-
-    def move(self):
+    def move(self, i, j):
         s = copy.copy(self.white_stone)
-        s.center = (self.cur_i, self.cur_j)
-        self.ax.add_patch(s)
+        s.center = (i, j)
+
+        p = self.ax.add_patch(s)
+        self.all_stones.append(p)
         self.fig.canvas.draw()
 
     def using_white(self):
         if self.strategy_1 is None:
             print('train first')
             return
-        
+
+        print('clear board')
+        for s in self.all_stones:
+            s.remove()
+        self.all_stones.clear()
+        self.fig.canvas.draw()
+
         self.strategy_1.is_learning = False
         s2 = StrategyHuman()
+        self.board = Board()
         self.game = Game(self.board, self.strategy_1, s2, self)
         self.game.step_to_end()
+        plt.title(Gui.RESULT_MSG[self.game.winner])
 
     def show(self, game):
         i, j = divmod(game.last_loc, Board.BOARD_SIZE)
@@ -117,41 +129,41 @@ class Gui(object):
         elif game.whose_turn == Board.STONE_WHITE:
             s = copy.copy(self.white_stone)
         s.center = (i, j)
+        self.all_stones.append(s)
         self.ax.add_patch(s)
         self.fig.canvas.draw()
-        
 
-    def train(self):         
-        s1 = StrategyTD(51, 25)
+    def train(self):
+        feat = Board.BOARD_SIZE ** 2 + 2
+        s1 = StrategyTD(feat, feat // 2)
         s1.alpha = 0.1
         s1.beta = 0.1
-    
+        s2 = s1
+
         win1 = 0
         win2 = 0
         draw = 0
-        
-        for _ in range(10):
+
+        rec = []
+        for i in range(10):
             g = Game(self.board, s1, s1)
             g.step_to_end()
             win1 += 1 if g.winner == Board.STONE_BLACK else 0
             win2 += 1 if g.winner == Board.STONE_WHITE else 0
             draw += 1 if g.winner == Board.STONE_NOTHING else 0
-        
+            rec.append((i, win1))
+
         total = win1 + win2 + draw
         print("black win: %f" % (win1 / total))
         print("white win: %f" % (win2 / total))
         print("draw: %f" % (draw / total))
-        
+
         self.strategy_1 = s1
+        self.strategy_2 = s2
+        plt.title('press F3 start')
+#         plt.plot(rec)
 
 if __name__ == '__main__':
-#     board = Board(9)
-#     board.move(3, 3, 2)
-#     board.move(3, 2, 1)
-#     board.show()
-#     sim1()
-
-    Board.BOARD_SIZE = 7
     board = Board()
     gui = Gui(board)
     plt.show()

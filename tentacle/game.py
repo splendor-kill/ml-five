@@ -5,7 +5,7 @@ from tentacle.board import Board
 class Game(object):
     def __init__(self, board, strat1, strat2, gui=None):
         self.board = board
-        self.strat = strat1
+        self.strat1 = strat1
         self.strat2 = strat2
         self.step_counter = 0
         self.verbose = True
@@ -20,13 +20,15 @@ class Game(object):
     def step(self):
         moves, self.whose_turn = self.possible_moves(self.board)
 
-        board = self.strat.preferred_board(self.board, moves, {"game": self})
+        strat = self.strat1 if self.whose_turn == Board.STONE_BLACK else self.strat2
+
+        board = strat.preferred_board(self.board, moves, self)
 #         print(self.board.stones)
 
         self.over, self.winner, self.last_loc = board.is_over(self.board)
 
-        if self.strat.needs_update():
-            self.strat.update(self.board, board)
+        if strat.needs_update():
+            strat.update(self.board, board)
 
         self.old_board = self.board
         self.board = board
@@ -42,7 +44,8 @@ class Game(object):
                 break
             print()
 
-    def _whose_turn(self, board):
+    @staticmethod
+    def whose_turn(board):
         '''
         Returns:
         -------------
@@ -69,7 +72,7 @@ class Game(object):
             boards: Board list
         '''
 #         whose turn is it?
-        who = self._whose_turn(board)
+        who = Game.whose_turn(board)
 
         print("it is [%d]'s turn" % who)
 
@@ -85,3 +88,11 @@ class Game(object):
 
         print('possible moves[%d]' % len(boards))
         return boards, who
+
+    def save(self, file1, file2):
+        self.strat1.save(file1)
+        self.strat2.save(file2)
+
+    def load(self, file1, file2):
+        self.strat1.load(file1)
+        self.strat2.load(file2)
