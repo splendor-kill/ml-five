@@ -42,7 +42,7 @@ class Game(object):
                 self.gui.show(self)
             if self.over:
                 break
-            print()
+#             print()
 
     @staticmethod
     def whose_turn(board):
@@ -53,8 +53,8 @@ class Game(object):
             it is your turn
         '''
         stat = np.bincount(board.stones, minlength=3)
-        print('stone stat.')
-        print(stat)
+#         print('stone stat.')
+#         print(stat)
 
         if  stat[Board.STONE_NOTHING] == 0:
             return Board.STONE_NOTHING  # end
@@ -74,7 +74,7 @@ class Game(object):
 #         whose turn is it?
         who = Game.whose_turn(board)
 
-        print("it is [%d]'s turn" % who)
+#         print("it is [%d]'s turn" % who)
 
         boards = []
         loc = np.where(board.stones == 0)
@@ -86,13 +86,6 @@ class Game(object):
             b.stones = x
             boards.append(b)
 
-        print('possible moves[%d]' % len(boards))
+#         print('possible moves[%d]' % len(boards))
         return boards, who
 
-    def save(self, file1, file2):
-        self.strat1.save(file1)
-        self.strat2.save(file2)
-
-    def load(self, file1, file2):
-        self.strat1.load(file1)
-        self.strat2.load(file2)

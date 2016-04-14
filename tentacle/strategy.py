@@ -191,6 +191,8 @@ class StrategyTD(StrategyTDBase):
             new_output = 1 if new.winner == Board.STONE_BLACK else 0
         else:
             new_output = self.get_output(self.get_hidden_values(self.get_input_values(new)))
+            
+        print('estimate%d' % new_output)
 
         self.output_weights += self.alpha * (new_output - old_output) * self.output_traces
         self.hidden_weights += self.beta * (new_output - old_output) * self.hidden_traces
@@ -203,6 +205,7 @@ class StrategyTD(StrategyTDBase):
                  hidden_traces=self.hidden_traces,
                  output_traces=self.output_traces
                  )
+        print('save OK')
     
     def load(self, file):        
         dat = np.load(file)
@@ -210,7 +213,7 @@ class StrategyTD(StrategyTDBase):
         self.output_weights = dat['output_weights']
         self.hidden_traces = dat['hidden_traces']
         self.output_traces = dat['output_traces']
-        print('loading OK')
+        print('load OK')
         
 
 
@@ -286,5 +289,32 @@ class StrategyHeuristic(Strategy):
         '''
         find many space or many some color stones in surrounding
         '''
-        pass
-                
+        game = context
+        
+        offset = np.array([[-1,-1],[-1,0],[-1,1],
+                 [0,-1],[0,1],
+                 [1,-1],[1,0],[1,1]], np.int)
+        loc = np.where(old.stones == 0)
+        box = []
+        for i in loc[0]:
+            row, col = divmod(i, Board.BOARD_SIZE)
+            neighbors = offset + (row, col)
+            s, space = 0, 0
+            for x, y in neighbors:
+                if 0 <= x < Board.BOARD_SIZE and 0 <= y < Board.BOARD_SIZE:
+                    p = x * Board.BOARD_SIZE + y
+                    if old.stones[p] == game.whose_turn:
+                        s += 1
+                    if old.stones[p] == Board.STONE_NOTHING:
+                        space += 1
+            box.append((row, col, s, space))
+        
+        box.sort(key=lambda t: 2*t[2] + t[3], reverse=True)
+        
+        if len(box) != 0:
+            loc = box[0]
+#             print('place here(%d,%d), %d pals' % (loc[0], loc[1], loc[2]))
+            return [b for b in moves if b.stones[loc[0] * Board.BOARD_SIZE + loc[1]] != Board.STONE_NOTHING][0]
+        else:
+            return random.choice(moves)
+        

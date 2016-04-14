@@ -2,14 +2,16 @@
 # print(matplotlib.get_backend())
 # print(matplotlib.is_interactive())
 # matplotlib.use('Qt4Agg')
+import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 import copy
 
 from tentacle.board import Board
 from tentacle.game import Game
-from tentacle.strategy import StrategyTD
+from tentacle.strategy import StrategyTD, StrategyRand
 from tentacle.strategy import StrategyHuman
+from tentacle.strategy import StrategyHeuristic
 
 
 class Gui(object):
@@ -55,18 +57,18 @@ class Gui(object):
         
 
     def _key_press(self, event):
-        print('press', event.key)
-        if event.key == 'c':
+#         print('press', event.key)
+        if event.key == '0':
             # clear
             pass
         elif event.key == 'e':
             # edit mode
             pass
-        elif event.key == 'l':
+        elif event.key == '1':
             feat = Board.BOARD_SIZE ** 2 + 2
             self.strategy_1 = StrategyTD(feat, feat // 2)           
             self.strategy_1.load('./brain1.npz')
-        elif event.key == 'f':
+        elif event.key == '3':
             self.strategy_1.save('./brain1.npz')
         elif event.key == 't':
             self.state = Gui.STATE_TRAINING
@@ -93,7 +95,7 @@ class Gui(object):
         if (event.xdata is None) or (event.ydata is None):
             return
         i, j = map(round, (event.xdata, event.ydata))
-        print('click at(%d, %d)' % (i, j))
+#         print('click at(%d, %d)' % (i, j))
 
     def move(self, i, j):
         s = copy.copy(self.white_stone)
@@ -108,18 +110,24 @@ class Gui(object):
             print('train first')
             return
 
-        print('clear board')
+        print('\nclear board\n')
+        
         for s in self.all_stones:
             s.remove()
         self.all_stones.clear()
         self.fig.canvas.draw()
 
         self.strategy_1.is_learning = False
+        
+#         s1 = self.strategy_1
+        s1 = StrategyHeuristic()
         s2 = StrategyHuman()
         self.board = Board()
-        self.game = Game(self.board, self.strategy_1, s2, self)
+        self.game = Game(self.board, s1, s2, self)
         self.game.step_to_end()
         plt.title(Gui.RESULT_MSG[self.game.winner])
+        print(Gui.RESULT_MSG[self.game.winner])
+        self.fig.canvas.draw()
 
     def show(self, game):
         i, j = divmod(game.last_loc, Board.BOARD_SIZE)
@@ -138,20 +146,22 @@ class Gui(object):
         s1 = StrategyTD(feat, feat // 2)
         s1.alpha = 0.1
         s1.beta = 0.1
-        s2 = s1
+        s2 = StrategyHeuristic()
+        
 
         win1 = 0
         win2 = 0
         draw = 0
 
         rec = []
-        for i in range(10):
-            g = Game(self.board, s1, s1)
+        for i in range(50):
+            g = Game(self.board, s1, s2)
             g.step_to_end()
             win1 += 1 if g.winner == Board.STONE_BLACK else 0
             win2 += 1 if g.winner == Board.STONE_WHITE else 0
             draw += 1 if g.winner == Board.STONE_NOTHING else 0
-            rec.append((i, win1))
+            rec.append(win1)
+            print('training...%d' %i)
 
         total = win1 + win2 + draw
         print("black win: %f" % (win1 / total))
@@ -161,6 +171,7 @@ class Gui(object):
         self.strategy_1 = s1
         self.strategy_2 = s2
         plt.title('press F3 start')
+        print(len(rec))
 #         plt.plot(rec)
 
 if __name__ == '__main__':

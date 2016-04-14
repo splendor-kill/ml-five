@@ -18,7 +18,7 @@ class Board(object):
     STONE_NOTHING = 0
     STONE_BLACK = 1
     STONE_WHITE = 2
-    BOARD_SIZE = 7
+    BOARD_SIZE = 9
     WIN_STONE_NUM = 5
     WIN_PATTERN = {STONE_BLACK: np.ones(WIN_STONE_NUM, dtype=int) * STONE_BLACK,
                    STONE_WHITE: np.ones(WIN_STONE_NUM, dtype=int) * STONE_WHITE}
@@ -141,7 +141,7 @@ class Board(object):
         grid = self.stones.reshape(-1, Board.BOARD_SIZE)
         row, col = divmod(loc, Board.BOARD_SIZE)
 
-        print('who[%d] at [%d, %d]' % (who, row, col))
+#         print('who[%d] at [%d, %d]' % (who, row, col))
 #         print(grid)
 
         win = self.find_conn_5(grid, row, col, who)
