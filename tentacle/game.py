@@ -8,6 +8,7 @@ class Game(object):
         self.strat1 = strat1
         self.strat2 = strat2
         self.step_counter = 0
+        self.exploration_counter = 0
         self.verbose = True
         self.winner = Board.STONE_NOTHING
         self.context = {}
@@ -24,6 +25,8 @@ class Game(object):
 
         board = strat.preferred_board(self.board, moves, self)
 #         print(self.board.stones)
+        if board.exploration:
+            self.exploration_counter += 1
 
         self.over, self.winner, self.last_loc = board.is_over(self.board)
 

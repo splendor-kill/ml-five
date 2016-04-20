@@ -28,6 +28,7 @@ class Board(object):
 #         self.stones = np.random.rand(N, N)
         self.over = False
         self.winner = Board.STONE_NOTHING
+        self.exploration = False
 
     def show(self):
         fig = plt.figure()

@@ -40,6 +40,7 @@ class Strategy(object):
             return old
         if len(moves) == 1:
             return moves[0]
+        
         board_most_value = max(moves, key=lambda m: self.board_value(m, context))
         return board_most_value
 
@@ -128,6 +129,21 @@ class StrategyTD(StrategyTDBase):
 #         print(np.shape(self.hidden_weights))
 #         print(np.shape(self.output_weights))
 
+    def preferred_board(self, old, moves, context):
+        if not moves:
+            return old
+        if len(moves) == 1:
+            return moves[0]
+        
+        epsilon = 0.05
+        if np.random.rand() < epsilon:  # exploration
+            the_board = random.choice(moves)
+            the_board.exploration = True
+            return the_board
+        else:
+            board_most_value = max(moves, key=lambda m: self.board_value(m, context))
+            return board_most_value
+
     def board_probabilities(self, board, context):
         inputs = self.get_input_values(board)
         hiddens = self.get_hidden_values(inputs)
@@ -187,16 +203,18 @@ class StrategyTD(StrategyTDBase):
         for i in range(old_hiddens.shape[0]):
             self._update_row_hidden_traces(self.hidden_traces[i], self.output_weights[0, i], old_hiddens[i], old_output[0])
 
+        if new.exploration:
+            return
+
         if new.over:
             new_output = 1 if new.winner == Board.STONE_BLACK else 0
         else:
             new_output = self.get_output(self.get_hidden_values(self.get_input_values(new)))
             
-        print('estimate%d' % new_output)
-
-        self.output_weights += self.alpha * (new_output - old_output) * self.output_traces
-        self.hidden_weights += self.beta * (new_output - old_output) * self.hidden_traces
+#         print('estimate%d' % new_output)
         
+        self.output_weights += self.alpha * (new_output - old_output) * self.output_traces
+        self.hidden_weights += self.beta * (new_output - old_output) * self.hidden_traces        
 
     def save(self, file):
         np.savez(file,
@@ -318,3 +336,10 @@ class StrategyHeuristic(Strategy):
         else:
             return random.choice(moves)
         
+
+class StrategyMinMax(Strategy):
+    def __init__(self):
+        super().__init__()
+
+    def preferred_board(self, old, moves, context):
+        pass

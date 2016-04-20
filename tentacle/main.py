@@ -6,6 +6,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 import copy
+import datetime
 
 from tentacle.board import Board
 from tentacle.game import Game
@@ -70,6 +71,7 @@ class Gui(object):
             self.strategy_1.load('./brain1.npz')
         elif event.key == '3':
             self.strategy_1.save('./brain1.npz')
+            self.strategy_2.save('./brain2.npz')
         elif event.key == 't':
             self.state = Gui.STATE_TRAINING
             self.train()
@@ -119,8 +121,7 @@ class Gui(object):
 
         self.strategy_1.is_learning = False
         
-#         s1 = self.strategy_1
-        s1 = StrategyHeuristic()
+        s1 = self.strategy_1
         s2 = StrategyHuman()
         self.board = Board()
         self.game = Game(self.board, s1, s2, self)
@@ -143,35 +144,45 @@ class Gui(object):
 
     def train(self):
         feat = Board.BOARD_SIZE ** 2 + 2
-        s1 = StrategyTD(feat, feat // 2)
-        s1.alpha = 0.1
-        s1.beta = 0.1
-        s2 = StrategyHeuristic()
-        
+        s1 = StrategyTD(feat, feat *2 // 3)
+        s1.alpha = 0.2
+        s1.beta = 0.2
+        s2 = StrategyTD(feat, feat // 2)
+        s2.alpha = 0.1
+        s2.beta = 0.1
 
-        win1 = 0
-        win2 = 0
-        draw = 0
-
-        rec = []
-        for i in range(50):
+        win1, win2, draw = 0, 0, 0
+        step_counter, explo_counter = 0, 0
+        begin = datetime.datetime.now()
+        episodes = 400000
+#         rec = []
+        for i in range(episodes):
             g = Game(self.board, s1, s2)
             g.step_to_end()
             win1 += 1 if g.winner == Board.STONE_BLACK else 0
             win2 += 1 if g.winner == Board.STONE_WHITE else 0
             draw += 1 if g.winner == Board.STONE_NOTHING else 0
-            rec.append(win1)
+#             rec.append(win1)
+            step_counter += g.step_counter
+            explo_counter += g.exploration_counter
+#             print('steps[%d], explos[%d]' % (g.step_counter, g.exploration_counter))
             print('training...%d' %i)
 
         total = win1 + win2 + draw
         print("black win: %f" % (win1 / total))
         print("white win: %f" % (win2 / total))
         print("draw: %f" % (draw / total))
+        
+        print('avg. steps[%f], avg. explos[%f]' % (step_counter / episodes, explo_counter / episodes))
 
+        end = datetime.datetime.now()
+        diff = end - begin
+        print("time cost[%f]s, avg.[%f]s" % (diff.total_seconds(), diff.total_seconds() / episodes))
+        
         self.strategy_1 = s1
         self.strategy_2 = s2
         plt.title('press F3 start')
-        print(len(rec))
+#         print(len(rec))
 #         plt.plot(rec)
 
 if __name__ == '__main__':
