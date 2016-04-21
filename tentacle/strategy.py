@@ -40,7 +40,7 @@ class Strategy(object):
             return old
         if len(moves) == 1:
             return moves[0]
-        
+
         board_most_value = max(moves, key=lambda m: self.board_value(m, context))
         return board_most_value
 
@@ -52,13 +52,13 @@ class Strategy(object):
             the estimate value
         '''
         pass
-    
+
     def save(self, file):
         pass
-    
+
     def load(self, file):
         pass
-    
+
 
 
 class StrategyProb(Strategy):
@@ -93,9 +93,6 @@ class StrategyTDBase(StrategyProb):
     alpha : float
         hyper parameter, 0 < alpha < 1
         
-    beta : float
-        hyper parameter, 0 < beta < 1
-    
     lambdaa : float
         hyper parameter, 0 < lambdaa < 1
         
@@ -106,8 +103,8 @@ class StrategyTDBase(StrategyProb):
         self.hidden_neurons_num = hidden_neurons_num
         self.is_learning = True
         self.alpha = 0.3
-        self.beta = 0.3
         self.lambdaa = 0.1
+        self.epsilon = 0.05
 
 
 class StrategyTD(StrategyTDBase):
@@ -135,8 +132,7 @@ class StrategyTD(StrategyTDBase):
         if len(moves) == 1:
             return moves[0]
         
-        epsilon = 0.05
-        if np.random.rand() < epsilon:  # exploration
+        if np.random.rand() < self.epsilon:  # exploration
             the_board = random.choice(moves)
             the_board.exploration = True
             return the_board
@@ -196,25 +192,25 @@ class StrategyTD(StrategyTDBase):
         old_inputs = self.get_input_values(old)
         old_hiddens = self.get_hidden_values(old_inputs)
         old_output = self.get_output(old_hiddens)
-#         print(old_output)
 
 #         update traces
-        self.output_traces = self.lambdaa * self.output_traces + old_output * (1 - old_output)
-        for i in range(old_hiddens.shape[0]):
-            self._update_row_hidden_traces(self.hidden_traces[i], self.output_weights[0, i], old_hiddens[i], old_output[0])
+        dw2 = old_output * (1 - old_output) * old_hiddens
+        self.output_traces = self.lambdaa * self.output_traces + dw2
+        dw1 = dw2 * (1 - old_hiddens) * self.output_weights
+        self.hidden_traces = self.lambdaa * self.hidden_traces + np.outer(dw1, old_inputs)
 
         if new.exploration:
             return
 
-        if new.over:
-            new_output = 1 if new.winner == Board.STONE_BLACK else 0
-        else:
-            new_output = self.get_output(self.get_hidden_values(self.get_input_values(new)))
-            
+        new_output = self.get_output(self.get_hidden_values(self.get_input_values(new)))
+        reward = 1 if new.over and new.winner == Board.STONE_BLACK else 0
+        delta = reward + new_output - old_output
+
 #         print('estimate%d' % new_output)
-        
-        self.output_weights += self.alpha * (new_output - old_output) * self.output_traces
-        self.hidden_weights += self.beta * (new_output - old_output) * self.hidden_traces        
+
+        self.output_weights += self.alpha * delta * self.output_traces
+        self.hidden_weights += self.alpha * delta * self.hidden_traces
+
 
     def save(self, file):
         np.savez(file,
@@ -224,15 +220,17 @@ class StrategyTD(StrategyTDBase):
                  output_traces=self.output_traces
                  )
         print('save OK')
-    
-    def load(self, file):        
+
+    def load(self, file):
         dat = np.load(file)
         self.hidden_weights = dat['hidden_weights']
         self.output_weights = dat['output_weights']
         self.hidden_traces = dat['hidden_traces']
         self.output_traces = dat['output_traces']
+        self.features_num = self.hidden_weights.shape[1]
+        self.hidden_neurons_num = self.output_weights.shape[1]
+        print('features[%d], hiddens[%d]' % (self.features_num, self.hidden_neurons_num))
         print('load OK')
-        
 
 
 class StrategyMLP(StrategyTDBase):
@@ -308,10 +306,10 @@ class StrategyHeuristic(Strategy):
         find many space or many some color stones in surrounding
         '''
         game = context
-        
-        offset = np.array([[-1,-1],[-1,0],[-1,1],
-                 [0,-1],[0,1],
-                 [1,-1],[1,0],[1,1]], np.int)
+
+        offset = np.array([[-1, -1], [-1, 0], [-1, 1],
+                 [0, -1], [0, 1],
+                 [1, -1], [1, 0], [1, 1]], np.int)
         loc = np.where(old.stones == 0)
         box = []
         for i in loc[0]:
@@ -326,16 +324,16 @@ class StrategyHeuristic(Strategy):
                     if old.stones[p] == Board.STONE_NOTHING:
                         space += 1
             box.append((row, col, s, space))
-        
-        box.sort(key=lambda t: 2*t[2] + t[3], reverse=True)
-        
+
+        box.sort(key=lambda t: 2 * t[2] + t[3], reverse=True)
+
         if len(box) != 0:
             loc = box[0]
 #             print('place here(%d,%d), %d pals' % (loc[0], loc[1], loc[2]))
             return [b for b in moves if b.stones[loc[0] * Board.BOARD_SIZE + loc[1]] != Board.STONE_NOTHING][0]
         else:
             return random.choice(moves)
-        
+
 
 class StrategyMinMax(Strategy):
     def __init__(self):

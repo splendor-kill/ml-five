@@ -144,7 +144,7 @@ class Gui(object):
 
     def train(self):
         feat = Board.BOARD_SIZE ** 2 + 2
-        s1 = StrategyTD(feat, feat *2 // 3)
+        s1 = StrategyTD(feat, feat // 2)
         s1.alpha = 0.2
         s1.beta = 0.2
         s2 = StrategyTD(feat, feat // 2)
@@ -154,7 +154,7 @@ class Gui(object):
         win1, win2, draw = 0, 0, 0
         step_counter, explo_counter = 0, 0
         begin = datetime.datetime.now()
-        episodes = 400000
+        episodes = 100
 #         rec = []
         for i in range(episodes):
             g = Game(self.board, s1, s2)
