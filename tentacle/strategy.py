@@ -9,7 +9,7 @@ from tentacle.game import Game
 
 class Strategy(object):
     def __init__(self):
-        pass
+        self.stand_for = None
 
     def needs_update(self):
         pass
@@ -119,10 +119,10 @@ class StrategyTD(StrategyTDBase):
     '''
     def __init__(self, features_num, hidden_neurons_num):
         super().__init__(features_num, hidden_neurons_num)
-        self.hidden_weights = np.random.rand(self.hidden_neurons_num, self.features_num)
-        self.output_weights = np.random.rand(1, self.hidden_neurons_num)
-        self.hidden_traces = np.zeros((self.hidden_neurons_num, self.features_num))
-        self.output_traces = np.zeros((1, self.hidden_neurons_num))
+        self.hidden_weights = np.random.rand(self.hidden_neurons_num, self.features_num + 1)
+        self.output_weights = np.random.rand(1, self.hidden_neurons_num + 1)
+        self.hidden_traces = np.zeros((self.hidden_neurons_num, self.features_num + 1))
+        self.output_traces = np.zeros((1, self.hidden_neurons_num + 1))
 #         print(np.shape(self.hidden_weights))
 #         print(np.shape(self.output_weights))
 
@@ -131,7 +131,7 @@ class StrategyTD(StrategyTDBase):
             return old
         if len(moves) == 1:
             return moves[0]
-        
+
         if np.random.rand() < self.epsilon:  # exploration
             the_board = random.choice(moves)
             the_board.exploration = True
@@ -168,6 +168,7 @@ class StrategyTD(StrategyTDBase):
         return iv
 
     def get_hidden_values(self, inputs):
+        inputs = np.insert(inputs, 0, 1.)
         v = self.hidden_weights.dot(inputs)
 #         print(self.hidden_weights.shape)
 #         print(inputs.shape)
@@ -175,6 +176,7 @@ class StrategyTD(StrategyTDBase):
         return expit(v)
 
     def get_output(self, hiddens):
+        hiddens = np.insert(hiddens, 0, 1.)
         v = self.output_weights.dot(hiddens)
 #         print(self.hidden_weights.shape)
 #         print(hiddens.shape)
@@ -189,21 +191,29 @@ class StrategyTD(StrategyTDBase):
         return row
 
     def update(self, old, new):
+        if new.exploration:
+            return
+
         old_inputs = self.get_input_values(old)
         old_hiddens = self.get_hidden_values(old_inputs)
         old_output = self.get_output(old_hiddens)
 
 #         update traces
         dw2 = old_output * (1 - old_output) * old_hiddens
+        dw2 = np.insert(dw2, 0, 1.)
+        old_hiddens = np.insert(old_hiddens, 0, 1.)
         self.output_traces = self.lambdaa * self.output_traces + dw2
         dw1 = dw2 * (1 - old_hiddens) * self.output_weights
-        self.hidden_traces = self.lambdaa * self.hidden_traces + np.outer(dw1, old_inputs)
-
-        if new.exploration:
-            return
+        self.hidden_traces = self.lambdaa * self.hidden_traces + np.outer(dw1[:, 1:], np.insert(old_inputs, 0, 1.))
 
         new_output = self.get_output(self.get_hidden_values(self.get_input_values(new)))
-        reward = 1 if new.over and new.winner == Board.STONE_BLACK else 0
+        if new.over:
+            if new.winner == Board.STONE_NOTHING:
+                reward = 0
+            else:
+                reward = 1 if self.stand_for == new.winner else -1
+        else:
+            reward = 0
         delta = reward + new_output - old_output
 
 #         print('estimate%d' % new_output)

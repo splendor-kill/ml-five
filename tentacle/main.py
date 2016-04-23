@@ -67,7 +67,8 @@ class Gui(object):
             pass
         elif event.key == '1':
             feat = Board.BOARD_SIZE ** 2 + 2
-            self.strategy_1 = StrategyTD(feat, feat // 2)           
+            self.strategy_1 = StrategyTD(feat, feat // 2)
+            self.strategy_1.stand_for = Board.STONE_BLACK
             self.strategy_1.load('./brain1.npz')
         elif event.key == '3':
             self.strategy_1.save('./brain1.npz')
@@ -123,6 +124,7 @@ class Gui(object):
         
         s1 = self.strategy_1
         s2 = StrategyHuman()
+        s2.stand_for = Board.STONE_WHITE
         self.board = Board()
         self.game = Game(self.board, s1, s2, self)
         self.game.step_to_end()
@@ -145,16 +147,17 @@ class Gui(object):
     def train(self):
         feat = Board.BOARD_SIZE ** 2 + 2
         s1 = StrategyTD(feat, feat // 2)
+        s1.stand_for = Board.STONE_BLACK
         s1.alpha = 0.2
-        s1.beta = 0.2
+        s1.lambdaa = 0.8
         s2 = StrategyTD(feat, feat // 2)
+        s2.stand_for = Board.STONE_WHITE
         s2.alpha = 0.1
-        s2.beta = 0.1
 
         win1, win2, draw = 0, 0, 0
         step_counter, explo_counter = 0, 0
         begin = datetime.datetime.now()
-        episodes = 100
+        episodes = 1
 #         rec = []
         for i in range(episodes):
             g = Game(self.board, s1, s2)
