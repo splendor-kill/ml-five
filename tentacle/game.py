@@ -30,10 +30,13 @@ class Game(object):
 
         self.over, self.winner, self.last_loc = board.is_over(self.board)
 
-        if self.strat1.needs_update():
-            self.strat1.update(self.board, board)
-        if self.strat2.needs_update():
-            self.strat2.update(self.board, board)
+        if strat.needs_update():
+            strat.update(self.board, board)
+
+        if self.over:
+            oppo_strat = self.strat1 if self.whose_turn == Board.STONE_WHITE else self.strat2
+            if oppo_strat.needs_update():
+                oppo_strat.update(self.board, board)
 
         self.old_board = self.board
         self.board = board

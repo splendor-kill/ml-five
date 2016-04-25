@@ -70,6 +70,11 @@ class Gui(object):
             self.strategy_1 = StrategyTD(feat, feat // 2)
             self.strategy_1.stand_for = Board.STONE_BLACK
             self.strategy_1.load('./brain1.npz')
+        elif event.key == '2':
+            feat = Board.BOARD_SIZE ** 2 + 2
+            self.strategy_2 = StrategyTD(feat, feat // 2)
+            self.strategy_2.stand_for = Board.STONE_WHITE
+            self.strategy_2.load('./brain2.npz')
         elif event.key == '3':
             self.strategy_1.save('./brain1.npz')
             self.strategy_2.save('./brain2.npz')
@@ -145,19 +150,27 @@ class Gui(object):
         self.fig.canvas.draw()
 
     def train(self):
-        feat = Board.BOARD_SIZE ** 2 + 2
-        s1 = StrategyTD(feat, feat // 2)
+        feat = Board.BOARD_SIZE ** 2 + 2        
+
+        s1 = StrategyTD(feat, feat * 2 // 3)
         s1.stand_for = Board.STONE_BLACK
-        s1.alpha = 0.2
-        s1.lambdaa = 0.8
-        s2 = StrategyTD(feat, feat // 2)
-        s2.stand_for = Board.STONE_WHITE
-        s2.alpha = 0.1
+        s1.alpha = 0.3
+        s1.lambdaa = 0.5
+        self.strategy_1 = s1
+            
+        if self.strategy_2 is None:
+            s2 = StrategyTD(feat, feat * 2 // 3)
+            s2.stand_for = Board.STONE_WHITE
+            s2.alpha = 0.3          
+            self.strategy_2 = s2
+        else:
+            s2 = self.strategy_2
+            s2.is_learning = False            
 
         win1, win2, draw = 0, 0, 0
         step_counter, explo_counter = 0, 0
         begin = datetime.datetime.now()
-        episodes = 1
+        episodes = 200
 #         rec = []
         for i in range(episodes):
             g = Game(self.board, s1, s2)
@@ -182,8 +195,7 @@ class Gui(object):
         diff = end - begin
         print("time cost[%f]s, avg.[%f]s" % (diff.total_seconds(), diff.total_seconds() / episodes))
         
-        self.strategy_1 = s1
-        self.strategy_2 = s2
+
         plt.title('press F3 start')
 #         print(len(rec))
 #         plt.plot(rec)

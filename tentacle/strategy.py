@@ -119,9 +119,9 @@ class StrategyTD(StrategyTDBase):
     '''
     def __init__(self, features_num, hidden_neurons_num):
         super().__init__(features_num, hidden_neurons_num)
-        self.hidden_weights = np.random.rand(self.hidden_neurons_num, self.features_num + 1)
+        self.hidden_weights = np.random.rand(self.hidden_neurons_num + 1, self.features_num + 1)
         self.output_weights = np.random.rand(1, self.hidden_neurons_num + 1)
-        self.hidden_traces = np.zeros((self.hidden_neurons_num, self.features_num + 1))
+        self.hidden_traces = np.zeros((self.hidden_neurons_num + 1, self.features_num + 1))
         self.output_traces = np.zeros((1, self.hidden_neurons_num + 1))
 #         print(np.shape(self.hidden_weights))
 #         print(np.shape(self.output_weights))
@@ -158,8 +158,9 @@ class StrategyTD(StrategyTDBase):
 #         print('vectorized board shape: ' + str(v.shape))
 
 #         print('b[%d], w[%d]' % (black, white))
-        iv = np.zeros(v.shape[0] + 2)
-        iv[0:v.shape[0]] = v
+        iv = np.zeros(v.shape[0] + 3)
+        iv[0] = 1.
+        iv[1:v.shape[0] + 1] = v
         who = Game.whose_turn(board)
         iv[-2] = 1 if who == Board.STONE_BLACK else 0  # turn to black move
         iv[-1] = 1 if who == Board.STONE_WHITE else 0  # turn to white move
@@ -168,15 +169,15 @@ class StrategyTD(StrategyTDBase):
         return iv
 
     def get_hidden_values(self, inputs):
-        inputs = np.insert(inputs, 0, 1.)
         v = self.hidden_weights.dot(inputs)
 #         print(self.hidden_weights.shape)
 #         print(inputs.shape)
 #         print(v.shape)
-        return expit(v)
+        v = expit(v)
+        v[0] = 1.
+        return v
 
     def get_output(self, hiddens):
-        hiddens = np.insert(hiddens, 0, 1.)
         v = self.output_weights.dot(hiddens)
 #         print(self.hidden_weights.shape)
 #         print(hiddens.shape)
@@ -200,11 +201,9 @@ class StrategyTD(StrategyTDBase):
 
 #         update traces
         dw2 = old_output * (1 - old_output) * old_hiddens
-        dw2 = np.insert(dw2, 0, 1.)
-        old_hiddens = np.insert(old_hiddens, 0, 1.)
         self.output_traces = self.lambdaa * self.output_traces + dw2
         dw1 = dw2 * (1 - old_hiddens) * self.output_weights
-        self.hidden_traces = self.lambdaa * self.hidden_traces + np.outer(dw1[:, 1:], np.insert(old_inputs, 0, 1.))
+        self.hidden_traces = self.lambdaa * self.hidden_traces + np.outer(dw1, old_inputs)
 
         new_output = self.get_output(self.get_hidden_values(self.get_input_values(new)))
         if new.over:
@@ -221,13 +220,17 @@ class StrategyTD(StrategyTDBase):
         self.output_weights += self.alpha * delta * self.output_traces
         self.hidden_weights += self.alpha * delta * self.hidden_traces
 
-
     def save(self, file):
         np.savez(file,
                  hidden_weights=self.hidden_weights,
                  output_weights=self.output_weights,
                  hidden_traces=self.hidden_traces,
-                 output_traces=self.output_traces
+                 output_traces=self.output_traces,
+                 features_num=self.features_num,
+                 hidden_neurons_num=self.hidden_neurons_num,
+                 alpha=self.alpha,
+                 lambdaa=self.lambdaa,
+                 epsilon=self.epsilon
                  )
         print('save OK')
 
@@ -237,11 +240,13 @@ class StrategyTD(StrategyTDBase):
         self.output_weights = dat['output_weights']
         self.hidden_traces = dat['hidden_traces']
         self.output_traces = dat['output_traces']
-        self.features_num = self.hidden_weights.shape[1]
-        self.hidden_neurons_num = self.output_weights.shape[1]
+        self.features_num = dat['features_num']
+        self.hidden_neurons_num = dat['hidden_neurons_num']
+        self.alpha = dat['alpha']
+        self.lambdaa = dat['lambdaa']
+        self.epsilon = dat['epsilon']
         print('features[%d], hiddens[%d]' % (self.features_num, self.hidden_neurons_num))
         print('load OK')
-
 
 class StrategyMLP(StrategyTDBase):
     def __init__(self, fileName=None):
