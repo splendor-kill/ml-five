@@ -7,6 +7,7 @@ import random
 from tentacle.board import Board
 from tentacle.game import Game
 
+
 class Strategy(object):
     def __init__(self):
         self.stand_for = None
@@ -15,6 +16,9 @@ class Strategy(object):
         pass
 
     def update(self, old, new):
+        pass
+
+    def update_at_end(self, old, new):
         pass
 
     def preferred_board(self, old, moves, context):
@@ -59,6 +63,9 @@ class Strategy(object):
     def load(self, file):
         pass
 
+    def setup(self):
+        pass
+
 
 
 class StrategyProb(Strategy):
@@ -80,10 +87,9 @@ class StrategyProb(Strategy):
         return self.probs[0]
 
 
-class StrategyTDBase(StrategyProb):
+class StrategyTD(StrategyProb):
     '''
     Attributes:
-    ---------------
     hidden_neurons_num : int
         number of hidden layer nodes
     
@@ -95,36 +101,34 @@ class StrategyTDBase(StrategyProb):
         
     lambdaa : float
         hyper parameter, 0 < lambdaa < 1
-        
+    -----------------
+    output_weights: numpy.2darray
+        the weights of output layer, shape = (output_units, hidden_units + 1)
+
+    hidden_weights: numpy.2darray
+        the wights of hidden layer, shape = (hidden_units + 1, features + 1)
     '''
     def __init__(self, features_num, hidden_neurons_num):
         super().__init__()
+        self.is_learning = True
+
         self.features_num = features_num
         self.hidden_neurons_num = hidden_neurons_num
-        self.is_learning = True
         self.alpha = 0.3
         self.lambdaa = 0.1
         self.epsilon = 0.05
 
-
-class StrategyTD(StrategyTDBase):
-    '''
-    Attributes:
-    -----------------
-    output_weights: numpy.2darray
-        the weights of output layer, 1 x 41
-
-    hidden_weights: numpy.2darray
-        the wights of hidden layer, 41 x 83
-    '''
-    def __init__(self, features_num, hidden_neurons_num):
-        super().__init__(features_num, hidden_neurons_num)
         self.hidden_weights = np.random.rand(self.hidden_neurons_num + 1, self.features_num + 1)
         self.output_weights = np.random.rand(1, self.hidden_neurons_num + 1)
-        self.hidden_traces = np.zeros((self.hidden_neurons_num + 1, self.features_num + 1))
-        self.output_traces = np.zeros((1, self.hidden_neurons_num + 1))
+        self.setup()
 #         print(np.shape(self.hidden_weights))
 #         print(np.shape(self.output_weights))
+
+    def setup(self):
+        self.prev_state = None
+        self.hidden_traces = np.zeros((self.hidden_neurons_num + 1, self.features_num + 1))
+        self.output_traces = np.zeros((1, self.hidden_neurons_num + 1))
+
 
     def preferred_board(self, old, moves, context):
         if not moves:
@@ -191,34 +195,60 @@ class StrategyTD(StrategyTDBase):
         row = self.lambdaa * row + out_weight * hidden_value * (1 - hidden_value) * old_output * (1 - old_output)
         return row
 
-    def update(self, old, new):
-        if new.exploration:
-            return
+    def update_at_end(self, dummy, new):
+        assert(self.prev_state is not None)
+        
+        if new.winner == Board.STONE_NOTHING:
+            reward = 0
+        else:
+            reward = 1 if self.stand_for == new.winner else -1
+            
+        self._update_impl(self.prev_state, new, reward)
+        
 
+    def update(self, old, dummy):
+        if self.prev_state is None:
+            self.prev_state = old
+            return
+        self._update_impl(self.prev_state, old, -0.1)
+        self.prev_state = old
+        
+    def _update_impl(self, old, new, reward):
+#         print('old', old.stones)
+#         print('new', new.stones)
         old_inputs = self.get_input_values(old)
+#         print('old input', old_inputs)
         old_hiddens = self.get_hidden_values(old_inputs)
         old_output = self.get_output(old_hiddens)
 
+#         print('input shape=', old_inputs.shape)
+#         print('hidden vector shape=', old_hiddens.shape)
+#         print('output.shape=', old_output.shape)
+        print('old output', old_output)
+
 #         update traces
         dw2 = old_output * (1 - old_output) * old_hiddens
+#         dw2 = old_output * old_hiddens
         self.output_traces = self.lambdaa * self.output_traces + dw2
         dw1 = dw2 * (1 - old_hiddens) * self.output_weights
+#         dw1 = dw2 * self.output_weights
         self.hidden_traces = self.lambdaa * self.hidden_traces + np.outer(dw1, old_inputs)
 
-        new_output = self.get_output(self.get_hidden_values(self.get_input_values(new)))
-        if new.over:
-            if new.winner == Board.STONE_NOTHING:
-                reward = 0
-            else:
-                reward = 1 if self.stand_for == new.winner else -1
-        else:
-            reward = 0
+        new_input = self.get_input_values(new)
+#         print('new input', new_input)
+        new_output = self.get_output(self.get_hidden_values(new_input))
+        print('new output', new_output)
+        print('reward', reward)
         delta = reward + new_output - old_output
 
 #         print('estimate%d' % new_output)
+        bak = np.copy(self.hidden_weights)
+        da = self.alpha * delta * self.output_traces
 
-        self.output_weights += self.alpha * delta * self.output_traces
+        self.output_weights += da
         self.hidden_weights += self.alpha * delta * self.hidden_traces
+        print(np.allclose(bak, self.hidden_weights))
+        
 
     def save(self, file):
         np.savez(file,
@@ -248,35 +278,18 @@ class StrategyTD(StrategyTDBase):
         print('features[%d], hiddens[%d]' % (self.features_num, self.hidden_neurons_num))
         print('load OK')
 
-class StrategyMLP(StrategyTDBase):
-    def __init__(self, fileName=None):
-        super().__init__()
-        if fileName:
-            # load weights from file
-            pass
-        else:
-            self.hidden_weights = np.random.rand(81, 40)
-            self.output_weights = np.random.rand(40, 1)
+    def mind_clone(self):
+        s = StrategyTD(self.features_num, self.hidden_neurons_num)
+        s.is_learning = False
+        s.alpha = self.alpha
+        s.lambdaa = self.lambdaa
+        s.epsilon = self.epsilon
 
-
-    def board_probabilities(self, board, context):
-        pass
-
-    def board_value(self, board, context):
-        pass
-
-    def update(self, old, new):
-#         forward
-#         backpropagation
-        pass
-
-    def load_weights(self):
-        pass
-
-    def save_weights(self):
-        pass
-
-
+        s.hidden_weights = np.copy(self.hidden_weights)
+        s.output_weights = np.copy(self.output_weights)
+        s.hidden_traces = np.copy(self.hidden_traces)
+        s.output_traces = np.copy(self.output_traces)
+        return s
 
 
 class StrategyHuman(Strategy):

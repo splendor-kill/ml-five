@@ -17,26 +17,37 @@ class Game(object):
         self.whose_turn = Board.STONE_NOTHING
         self.last_loc = None
         self.wait_human = False
+        self.strat1.setup()
+        self.strat2.setup()
+
 
     def step(self):
         moves, self.whose_turn = self.possible_moves(self.board)
 
         strat = self.strat1 if self.whose_turn == Board.STONE_BLACK else self.strat2
+        print('who', strat.stand_for)
+
+        if strat.needs_update():
+            strat.update(self.board, None)
 
         board = strat.preferred_board(self.board, moves, self)
 #         print(self.board.stones)
         if board.exploration:
+            strat.setup()
             self.exploration_counter += 1
 
         self.over, self.winner, self.last_loc = board.is_over(self.board)
 
-        if strat.needs_update():
-            strat.update(self.board, board)
-
         if self.over:
-            oppo_strat = self.strat1 if self.whose_turn == Board.STONE_WHITE else self.strat2
-            if oppo_strat.needs_update():
-                oppo_strat.update(self.board, board)
+            if self.strat1.needs_update():
+                self.strat1.update_at_end(self.board, board)
+            if self.strat2.needs_update():
+                self.strat2.update_at_end(self.board, board)
+                
+#         if self.over:
+#             oppo_strat = self.strat1 if self.whose_turn == Board.STONE_WHITE else self.strat2
+#             if oppo_strat.needs_update():
+#                 oppo_strat.update(oppo_strat.prev_state, board)
 
         self.old_board = self.board
         self.board = board
