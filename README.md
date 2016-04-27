@@ -1,1 +1,2 @@
-connection-5 with machine learning
+gobang using machine learning
+
