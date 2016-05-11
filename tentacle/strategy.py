@@ -97,10 +97,16 @@ class StrategyTD(StrategyProb):
         whether if update weights
         
     alpha : float
-        hyper parameter, 0 < alpha < 1
+        1st layer learning rate (typically 1/features_num)
+            
+    beta : float
+        2nd layer learning rate (typically 1/hidden_neurons_num)
+        
+    gamma : float
+        discount-rate parameter (typically 0.9)
         
     lambdaa : float
-        hyper parameter, 0 < lambdaa < 1
+        trace decay parameter (should be <= gamma)
     -----------------
     output_weights: numpy.2darray
         the weights of output layer, shape = (output_units, hidden_units + 1)
@@ -114,7 +120,9 @@ class StrategyTD(StrategyProb):
 
         self.features_num = features_num
         self.hidden_neurons_num = hidden_neurons_num
-        self.alpha = 0.3
+        self.alpha = 1. / features_num
+        self.beta = 1. / hidden_neurons_num
+        self.gamma = 1
         self.lambdaa = 0.1
         self.epsilon = 0.05
 
@@ -162,11 +170,12 @@ class StrategyTD(StrategyProb):
 #         print('vectorized board shape: ' + str(v.shape))
 
 #         print('b[%d], w[%d]' % (black, white))
-        iv = np.zeros(v.shape[0] + 3)
+        iv = np.zeros(v.shape[0] * 2 + 2)
         iv[0] = 1.
-        iv[1:v.shape[0] + 1] = v
+        iv[1:v.shape[0] + 1] = (v==Board.STONE_BLACK).astype(int)
+        iv[v.shape[0] + 1:v.shape[0] * 2 + 1] = (v==Board.STONE_WHITE).astype(int)
         who = Game.whose_turn(board)
-        iv[-2] = 1 if who == Board.STONE_BLACK else 0  # turn to black move
+#         iv[-2] = 1 if who == Board.STONE_BLACK else 0  # turn to black move
         iv[-1] = 1 if who == Board.STONE_WHITE else 0  # turn to white move
 #         print(iv.shape)
 #         print(iv)
@@ -177,7 +186,7 @@ class StrategyTD(StrategyProb):
 #         print(self.hidden_weights.shape)
 #         print(inputs.shape)
 #         print(v.shape)
-        v = expit(v)
+#         v = expit(v)
         v[0] = 1.
         return v
 
@@ -186,7 +195,8 @@ class StrategyTD(StrategyProb):
 #         print(self.hidden_weights.shape)
 #         print(hiddens.shape)
 #         print(v.shape)
-        return expit(v)
+#         return expit(v)
+        return v
 
     def needs_update(self):
         return self.is_learning
@@ -212,7 +222,30 @@ class StrategyTD(StrategyProb):
             return
         self._update_impl(self.prev_state, old, -0.1)
         self.prev_state = old
-        
+
+    def _add_bias_unit(self, X, how='column'):
+        """Add bias unit (column or row of 1s) to array at index 0"""
+        if how == 'column':
+            X_new = np.ones((X.shape[0], X.shape[1] + 1))
+            X_new[:, 1:] = X
+        elif how == 'row':
+            X_new = np.ones((X.shape[0] + 1, X.shape[1]))
+            X_new[1:, :] = X
+        else:
+            raise AttributeError('`how` must be `column` or `row`')
+        return X_new
+    
+    def _feedforward(self, X, w1, w2):
+        X = X.reshape(-1, X.size)
+        print(X.shape, w1.shape, w2.shape)
+        a1 = X #self._add_bias_unit(X, how='column')
+        z2 = w1.dot(a1.T)
+        a2 = z2 #self._sigmoid(z2)
+        a2 = self._add_bias_unit(a2, how='row')
+        z3 = w2.dot(a2)
+        a3 = z3 #self._sigmoid(z3)
+        return a1, z2, a2, z3, a3
+            
     def _update_impl(self, old, new, reward):
 #         print('old', old.stones)
 #         print('new', new.stones)
@@ -220,34 +253,30 @@ class StrategyTD(StrategyProb):
 #         print('old input', old_inputs)
         old_hiddens = self.get_hidden_values(old_inputs)
         old_output = self.get_output(old_hiddens)
-
-#         print('input shape=', old_inputs.shape)
-#         print('hidden vector shape=', old_hiddens.shape)
-#         print('output.shape=', old_output.shape)
-        print('old output', old_output)
-
+        
 #         update traces
-        dw2 = old_output * (1 - old_output) * old_hiddens
-#         dw2 = old_output * old_hiddens
+#         dw2 = old_output * (1 - old_output) * old_hiddens
+        dw2 = old_hiddens
         self.output_traces = self.lambdaa * self.output_traces + dw2
-        dw1 = dw2 * (1 - old_hiddens) * self.output_weights
-#         dw1 = dw2 * self.output_weights
-        self.hidden_traces = self.lambdaa * self.hidden_traces + np.outer(dw1, old_inputs)
+  
+#         dw1 = dw2 * (1 - old_hiddens) * self.output_weights
+        dw1 = self.output_weights
+#         print('dw1', dw1.shape)
+#         print('hidden traces', self.hidden_traces.shape)
+#         print('dw1:', dw1)
 
+        self.hidden_traces = self.lambdaa * self.hidden_traces + np.outer(dw1, old_inputs)
+         
         new_input = self.get_input_values(new)
 #         print('new input', new_input)
         new_output = self.get_output(self.get_hidden_values(new_input))
-        print('new output', new_output)
-        print('reward', reward)
         delta = reward + new_output - old_output
+        print('delta:', delta, '\told output:', old_output, '\tnew output:', new_output, '\treward:', reward)
 
-#         print('estimate%d' % new_output)
-        bak = np.copy(self.hidden_weights)
-        da = self.alpha * delta * self.output_traces
-
-        self.output_weights += da
+#         bak = np.copy(self.output_weights)
+        self.output_weights += self.beta * delta * self.output_traces
         self.hidden_weights += self.alpha * delta * self.hidden_traces
-        print(np.allclose(bak, self.hidden_weights))
+#         print(np.allclose(bak, self.output_weights))
         
 
     def save(self, file):

@@ -25,7 +25,7 @@ class Game(object):
         moves, self.whose_turn = self.possible_moves(self.board)
 
         strat = self.strat1 if self.whose_turn == Board.STONE_BLACK else self.strat2
-        print('who', strat.stand_for)
+#         print('who', strat.stand_for)
 
         if strat.needs_update():
             strat.update(self.board, None)
@@ -33,7 +33,7 @@ class Game(object):
         board = strat.preferred_board(self.board, moves, self)
 #         print(self.board.stones)
         if board.exploration:
-            strat.setup()
+#             strat.setup()
             self.exploration_counter += 1
 
         self.over, self.winner, self.last_loc = board.is_over(self.board)
