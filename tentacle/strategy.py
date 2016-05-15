@@ -122,12 +122,16 @@ class StrategyTD(StrategyProb):
         self.hidden_neurons_num = hidden_neurons_num
         self.alpha = 1. / features_num
         self.beta = 1. / hidden_neurons_num
-        self.gamma = 1
+        self.gamma = .9
         self.lambdaa = 0.1
         self.epsilon = 0.05
 
         self.hidden_weights = np.random.rand(self.hidden_neurons_num + 1, self.features_num + 1)
+#         self.hidden_weights -= 0.5
+        self.hidden_weights *= 0.1
         self.output_weights = np.random.rand(1, self.hidden_neurons_num + 1)
+#         self.output_weights -= 0.5
+        self.output_weights *= 0.1
         self.setup()
 #         print(np.shape(self.hidden_weights))
 #         print(np.shape(self.output_weights))
@@ -186,7 +190,7 @@ class StrategyTD(StrategyProb):
 #         print(self.hidden_weights.shape)
 #         print(inputs.shape)
 #         print(v.shape)
-#         v = expit(v)
+        v = expit(v)
         v[0] = 1.
         return v
 
@@ -195,8 +199,8 @@ class StrategyTD(StrategyProb):
 #         print(self.hidden_weights.shape)
 #         print(hiddens.shape)
 #         print(v.shape)
-#         return expit(v)
-        return v
+        return expit(v)
+#         return v
 
     def needs_update(self):
         return self.is_learning
@@ -216,36 +220,18 @@ class StrategyTD(StrategyProb):
         self._update_impl(self.prev_state, new, reward)
         
 
-    def update(self, old, dummy):
+    def update(self, old, new):
         if self.prev_state is None:
             self.prev_state = old
             return
-        self._update_impl(self.prev_state, old, -0.1)
-        self.prev_state = old
-
-    def _add_bias_unit(self, X, how='column'):
-        """Add bias unit (column or row of 1s) to array at index 0"""
-        if how == 'column':
-            X_new = np.ones((X.shape[0], X.shape[1] + 1))
-            X_new[:, 1:] = X
-        elif how == 'row':
-            X_new = np.ones((X.shape[0] + 1, X.shape[1]))
-            X_new[1:, :] = X
+        if new is None:
+            self._update_impl(self.prev_state, old, 0)
+            self.prev_state = old
         else:
-            raise AttributeError('`how` must be `column` or `row`')
-        return X_new
-    
-    def _feedforward(self, X, w1, w2):
-        X = X.reshape(-1, X.size)
-        print(X.shape, w1.shape, w2.shape)
-        a1 = X #self._add_bias_unit(X, how='column')
-        z2 = w1.dot(a1.T)
-        a2 = z2 #self._sigmoid(z2)
-        a2 = self._add_bias_unit(a2, how='row')
-        z3 = w2.dot(a2)
-        a3 = z3 #self._sigmoid(z3)
-        return a1, z2, a2, z3, a3
-            
+            self._update_impl(old, new, 0)
+            self.prev_state = old
+
+          
     def _update_impl(self, old, new, reward):
 #         print('old', old.stones)
 #         print('new', new.stones)
@@ -255,12 +241,12 @@ class StrategyTD(StrategyProb):
         old_output = self.get_output(old_hiddens)
         
 #         update traces
-#         dw2 = old_output * (1 - old_output) * old_hiddens
-        dw2 = old_hiddens
+        dw2 = old_output * (1 - old_output) * old_hiddens
+#         dw2 = old_hiddens
         self.output_traces = self.lambdaa * self.output_traces + dw2
   
-#         dw1 = dw2 * (1 - old_hiddens) * self.output_weights
-        dw1 = self.output_weights
+        dw1 = dw2 * (1 - old_hiddens) * self.output_weights
+#         dw1 = self.output_weights
 #         print('dw1', dw1.shape)
 #         print('hidden traces', self.hidden_traces.shape)
 #         print('dw1:', dw1)
@@ -270,9 +256,8 @@ class StrategyTD(StrategyProb):
         new_input = self.get_input_values(new)
 #         print('new input', new_input)
         new_output = self.get_output(self.get_hidden_values(new_input))
-        delta = reward + new_output - old_output
-        print('delta:', delta, '\told output:', old_output, '\tnew output:', new_output, '\treward:', reward)
-
+        delta = reward + self.gamma * new_output - old_output
+        print('delta[{: 12.6g}], old[{: 15.6g}], new[{: 12.6g}], reward[{: 1.1f}]'.format(delta[0], old_output[0], new_output[0], reward))
 #         bak = np.copy(self.output_weights)
         self.output_weights += self.beta * delta * self.output_traces
         self.hidden_weights += self.alpha * delta * self.hidden_traces
@@ -288,7 +273,9 @@ class StrategyTD(StrategyProb):
                  features_num=self.features_num,
                  hidden_neurons_num=self.hidden_neurons_num,
                  alpha=self.alpha,
-                 lambdaa=self.lambdaa,
+                 beta=self.beta,
+                 gamma=self.gamma,
+                 lambdaa=self.lambdaa,                 
                  epsilon=self.epsilon
                  )
         print('save OK')
@@ -302,6 +289,8 @@ class StrategyTD(StrategyProb):
         self.features_num = dat['features_num']
         self.hidden_neurons_num = dat['hidden_neurons_num']
         self.alpha = dat['alpha']
+        self.beta = dat['beta']
+        self.gamma = dat['gamma']
         self.lambdaa = dat['lambdaa']
         self.epsilon = dat['epsilon']
         print('features[%d], hiddens[%d]' % (self.features_num, self.hidden_neurons_num))
@@ -311,6 +300,8 @@ class StrategyTD(StrategyProb):
         s = StrategyTD(self.features_num, self.hidden_neurons_num)
         s.is_learning = False
         s.alpha = self.alpha
+        s.beta = self.beta
+        s.gamma = self.gamma
         s.lambdaa = self.lambdaa
         s.epsilon = self.epsilon
 

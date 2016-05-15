@@ -27,8 +27,8 @@ class Game(object):
         strat = self.strat1 if self.whose_turn == Board.STONE_BLACK else self.strat2
 #         print('who', strat.stand_for)
 
-        if strat.needs_update():
-            strat.update(self.board, None)
+#         if strat.needs_update():
+#             strat.update(self.board, None)
 
         board = strat.preferred_board(self.board, moves, self)
 #         print(self.board.stones)
@@ -37,26 +37,33 @@ class Game(object):
             self.exploration_counter += 1
 
         self.over, self.winner, self.last_loc = board.is_over(self.board)
-
+        
         if self.over:
-            if self.strat1.needs_update():
-                self.strat1.update_at_end(self.board, board)
-            if self.strat2.needs_update():
-                self.strat2.update_at_end(self.board, board)
-                
-#         if self.over:
-#             oppo_strat = self.strat1 if self.whose_turn == Board.STONE_WHITE else self.strat2
-#             if oppo_strat.needs_update():
-#                 oppo_strat.update(oppo_strat.prev_state, board)
+            if strat.needs_update():
+                strat.update_at_end(self.board, board)
+        else:
+            if strat.needs_update():
+                strat.update(self.board, board)
 
+#         if self.over:
+#             if self.strat1.needs_update():
+#                 self.strat1.update_at_end(self.board, board)
+#             if self.strat2.needs_update():
+#                 self.strat2.update_at_end(self.board, board)
+                
         self.old_board = self.board
         self.board = board
 
         self.step_counter += 1
+        
+        if self.strat1 == self.strat2:
+            self.strat1.stand_for = Board.STONE_BLACK if self.strat1.stand_for == Board.STONE_WHITE else Board.STONE_WHITE
+               
 
     def step_to_end(self):
         while True:
             self.step()
+            
             if self.gui is not None:
                 self.gui.show(self)
             if self.over:

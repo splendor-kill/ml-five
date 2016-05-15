@@ -158,7 +158,7 @@ class Gui(object):
 
         rand = StrategyRand()
         probs = [0, 0, 0, 0, 0, 0]
-        games = 50
+        games = 20
         for i in range(games):
             g = Game(Board(), s1, s2)
             g.step_to_end()
@@ -203,6 +203,8 @@ class Gui(object):
 
         s1 = StrategyTD(feat, feat * 2 // 3)
         s1.stand_for = Board.STONE_BLACK
+#         s1.alpha = 0.3
+#         s1.beta = 0.3        
         s1.lambdaa = 0.05
         s1.epsilon = 0.3
         self.strategy_1 = s1
@@ -220,19 +222,19 @@ class Gui(object):
         win1, win2, draw = 0, 0, 0
         step_counter, explo_counter = 0, 0
         begin = datetime.datetime.now()
-        episodes = 301
+        episodes = 100
 #         rec = []
         perf = [[] for _ in range(7)]
         past_me = s1.mind_clone()
         for i in range(episodes):
-            if i % 100 == 0:
-                print(np.allclose(s1.hidden_weights, past_me.hidden_weights))
-                probs = self.measure_perf(s1, past_me)
-                past_me = s1.mind_clone()                
-                perf[0].append(i)
-                for idx, x in enumerate(probs):
-                    perf[idx + 1].append(x)
-            g = Game(self.board, s1, s2)
+#             if i % 100 == 0:
+# #                 print(np.allclose(s1.hidden_weights, past_me.hidden_weights))
+#                 probs = self.measure_perf(s1, past_me)
+#                 past_me = s1.mind_clone()                
+#                 perf[0].append(i)
+#                 for idx, x in enumerate(probs):
+#                     perf[idx + 1].append(x)
+            g = Game(self.board, s1, s1)
             g.step_to_end()
             win1 += 1 if g.winner == Board.STONE_BLACK else 0
             win2 += 1 if g.winner == Board.STONE_WHITE else 0
