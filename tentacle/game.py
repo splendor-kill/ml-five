@@ -24,50 +24,44 @@ class Game(object):
     def step(self):
         moves, self.whose_turn = self.possible_moves(self.board)
 
-        strat = self.strat1 if self.whose_turn == Board.STONE_BLACK else self.strat2
+        strat = self.strat1 if self.whose_turn == self.strat1.stand_for else self.strat2
 #         print('who', strat.stand_for)
 
-#         if strat.needs_update():
-#             strat.update(self.board, None)
+        strat.update(None, None)
 
-        board = strat.preferred_board(self.board, moves, self)
+        new_board = strat.preferred_board(self.board, moves, self)
 #         print(self.board.stones)
-        if board.exploration:
+        if new_board.exploration:
 #             strat.setup()
             self.exploration_counter += 1
 
-        self.over, self.winner, self.last_loc = board.is_over(self.board)
+        self.over, self.winner, self.last_loc = new_board.is_over(self.board)
         
         if self.over:
-            if strat.needs_update():
-                strat.update_at_end(self.board, board)
+            strat.update_at_end(self.board, new_board)
+            opponent_strat = self.strat1 if self.whose_turn != self.strat1.stand_for else self.strat2
+            opponent_strat.update_at_end(None, new_board)
         else:
-            if strat.needs_update():
-                strat.update(self.board, board)
+            strat.update(self.board, new_board)
 
-#         if self.over:
-#             if self.strat1.needs_update():
-#                 self.strat1.update_at_end(self.board, board)
-#             if self.strat2.needs_update():
-#                 self.strat2.update_at_end(self.board, board)
                 
         self.old_board = self.board
-        self.board = board
-
-        self.step_counter += 1
+        self.board = new_board
         
         if self.strat1 == self.strat2:
             self.strat1.stand_for = Board.STONE_BLACK if self.strat1.stand_for == Board.STONE_WHITE else Board.STONE_WHITE
                
-
     def step_to_end(self):
         while True:
             self.step()
+            
+            self.step_counter += 1
             
             if self.gui is not None:
                 self.gui.show(self)
             if self.over:
                 break
+            
 #             print()
 
     @staticmethod

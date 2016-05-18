@@ -6,6 +6,7 @@ import random
 
 from tentacle.board import Board
 from tentacle.game import Game
+from _hashlib import new
 
 
 class Strategy(object):
@@ -138,6 +139,7 @@ class StrategyTD(StrategyProb):
 
     def setup(self):
         self.prev_state = None
+        self.follow_state = None
         self.hidden_traces = np.zeros((self.hidden_neurons_num + 1, self.features_num + 1))
         self.output_traces = np.zeros((1, self.hidden_neurons_num + 1))
 
@@ -205,32 +207,38 @@ class StrategyTD(StrategyProb):
     def needs_update(self):
         return self.is_learning
 
-    def _update_row_hidden_traces(self, row, out_weight, hidden_value, old_output):
-        row = self.lambdaa * row + out_weight * hidden_value * (1 - hidden_value) * old_output * (1 - old_output)
-        return row
-
-    def update_at_end(self, dummy, new):
-        assert(self.prev_state is not None)
-        
+    def update_at_end(self, old, new):
+        if not self.needs_update():
+            return
+                
         if new.winner == Board.STONE_NOTHING:
             reward = 0
         else:
             reward = 1 if self.stand_for == new.winner else -1
-            
-        self._update_impl(self.prev_state, new, reward)
+        
+        assert(self.prev_state is not None)
+        
+        if old is None:
+            self._update_impl(self.prev_state, self.follow_state, reward)
+        else:    
+            self._update_impl(old, new, reward)
         
 
     def update(self, old, new):
+        if not self.needs_update():
+            return
+        
         if self.prev_state is None:
             self.prev_state = old
-            return
+            self.follow_state = new
+            return       
+        
         if new is None:
-            self._update_impl(self.prev_state, old, 0)
-            self.prev_state = old
+            self._update_impl(self.prev_state, self.follow_state, 0)
         else:
-            self._update_impl(old, new, 0)
             self.prev_state = old
-
+            self.follow_state = new
+        
           
     def _update_impl(self, old, new, reward):
 #         print('old', old.stones)
@@ -257,7 +265,7 @@ class StrategyTD(StrategyProb):
 #         print('new input', new_input)
         new_output = self.get_output(self.get_hidden_values(new_input))
         delta = reward + self.gamma * new_output - old_output
-        print('delta[{: 12.6g}], old[{: 15.6g}], new[{: 12.6g}], reward[{: 1.1f}]'.format(delta[0], old_output[0], new_output[0], reward))
+#         print('delta[{: 12.6g}], old[{: 15.6g}], new[{: 12.6g}], reward[{: 1.1f}]'.format(delta[0], old_output[0], new_output[0], reward))
 #         bak = np.copy(self.output_weights)
         self.output_weights += self.beta * delta * self.output_traces
         self.hidden_weights += self.alpha * delta * self.hidden_traces
