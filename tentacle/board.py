@@ -27,8 +27,21 @@ class Board(object):
         self.stones = np.zeros(Board.BOARD_SIZE ** 2, np.int)
 #         self.stones = np.random.rand(N, N)
         self.over = False
-        self.winner = Board.STONE_NOTHING
+        self.winner = Board.STONE_NOTHING        
         self.exploration = False
+
+    @staticmethod
+    def rand_generate_a_position():
+        b = Board()
+        m = b.stones
+        most = m.size // 2
+        white = np.random.randint(most)
+        m[0:white] = Board.STONE_WHITE
+        m[white:white * 2] = Board.STONE_BLACK
+        m[white * 2] = np.random.randint(1)
+       
+        np.random.shuffle(m)
+        return b      
 
     def show(self):
         fig = plt.figure()
@@ -56,6 +69,15 @@ class Board(object):
         if self.stones[x, y] != 0:
             raise Exception('cannot move here')
         self.stones[x, y] = v
+
+    @staticmethod
+    def oppo(who):
+        if who == Board.STONE_BLACK:
+            return Board.STONE_WHITE
+        if who == Board.STONE_WHITE:
+            return Board.STONE_BLACK
+        raise Exception('illegal arg who[%d]' % (who))
+        
 
     @staticmethod
     def _row(arr2d, row, col):
