@@ -12,7 +12,6 @@ from tentacle.board import Board
 from tentacle.game import Game
 from tentacle.strategy import StrategyTD, StrategyRand
 from tentacle.strategy import StrategyHuman
-from tentacle.strategy import StrategyHeuristic
 
 
 class Gui(object):
@@ -69,13 +68,13 @@ class Gui(object):
         elif event.key == '1':
             feat = Board.BOARD_SIZE ** 2 + 2
             self.strategy_1 = StrategyTD(feat, feat // 2)
-            self.strategy_1.stand_for = Board.STONE_BLACK
             self.strategy_1.load('./brain1.npz')
+            self.strategy_1.stand_for = Board.STONE_BLACK
         elif event.key == '2':
             feat = Board.BOARD_SIZE ** 2 + 2
             self.strategy_2 = StrategyTD(feat, feat // 2)
-            self.strategy_2.stand_for = Board.STONE_WHITE
             self.strategy_2.load('./brain2.npz')
+            self.strategy_2.stand_for = Board.STONE_WHITE
         elif event.key == '3':
             self.strategy_1.save('./brain1.npz')
             self.strategy_2.save('./brain2.npz')
@@ -84,13 +83,11 @@ class Gui(object):
             self.train()
             pass
         elif event.key == 'f2':
-            # play with black
-            pass
+            self.state = Gui.STATE_PLAY
+            self.vs_human(Board.STONE_BLACK)
         elif event.key == 'f3':
             self.state = Gui.STATE_PLAY
-            self.using_white()
-            # play with white
-            pass
+            self.vs_human(Board.STONE_WHITE)
         elif event.key == 'f1':
             pass
 
@@ -114,10 +111,26 @@ class Gui(object):
         self.all_stones.append(p)
         self.fig.canvas.draw()
 
-    def using_white(self):
-        if self.strategy_1 is None:
-            print('train first')
+    def which_one(self, which_side):
+        if self.strategy_1 is not None and self.strategy_1.stand_for == which_side:
+            return self.strategy_1
+        elif self.strategy_2 is not None and self.strategy_2.stand_for == which_side:
+            return self.strategy_2
+        return None
+
+
+    def vs_human(self, which_side_human_play):
+        strategy = self.which_one(Board.oppo(which_side_human_play))
+        if strategy is None:
+            print('play with a brainy opponent')
             return
+
+        old_is_learning, old_stand_for = strategy.is_learning, strategy.stand_for
+        strategy.is_learning, strategy.stand_for = False, Board.oppo(which_side_human_play)
+
+        s1 = strategy
+        s2 = StrategyHuman()
+        s2.stand_for = which_side_human_play
 
         print('\nclear board\n')
 
@@ -126,17 +139,16 @@ class Gui(object):
         self.all_stones.clear()
         self.fig.canvas.draw()
 
-        self.strategy_1.is_learning = False
-
-        s1 = self.strategy_1
-        s2 = StrategyHuman()
-        s2.stand_for = Board.STONE_WHITE
         self.board = Board()
         self.game = Game(self.board, s1, s2, self)
         self.game.step_to_end()
+
         plt.title(Gui.RESULT_MSG[self.game.winner])
         print(Gui.RESULT_MSG[self.game.winner])
         self.fig.canvas.draw()
+
+        strategy.is_learning, strategy.stand_for = old_is_learning, old_stand_for
+
 
     def show(self, game):
         i, j = divmod(game.last_loc, Board.BOARD_SIZE)
@@ -151,74 +163,77 @@ class Gui(object):
         self.fig.canvas.draw()
 
     def measure_perf(self, s1, s2):
-        old_epsilon1, old_is_learning1 = s1.epsilon, s1.is_learning
-        old_epsilon2, old_is_learning2 = s2.epsilon, s2.is_learning
-        s1.epsilon, s1.is_learning = 0, False
-        s2.epsilon, s2.is_learning = 0, False
-        old_stand_for2 = s2.stand_for
-        s2.stand_for = Board.STONE_WHITE        
+        old_epsilon1, old_is_learning1, old_stand_for1 = s1.epsilon, s1.is_learning, s1.stand_for
+        old_epsilon2, old_is_learning2, old_stand_for2 = s2.epsilon, s2.is_learning, s2.stand_for
+        s1.epsilon, s1.is_learning, s1.stand_for = 0, False, Board.STONE_WHITE
+        s2.epsilon, s2.is_learning, s2.stand_for = 0, False, Board.STONE_BLACK
 
         rand = StrategyRand()
-        rand.stand_for = Board.STONE_WHITE
+        rand.stand_for = Board.STONE_BLACK
         probs = [0, 0, 0, 0, 0, 0]
-        games = 30
+        games = 20
         for i in range(games):
-            g = Game(Board(), s1, s2)
+            s1.stand_for = Board.STONE_WHITE
+            s2.stand_for = Board.STONE_BLACK
+            g = Game(Board.rand_generate_a_position(), s1, s2)
             g.step_to_end()
             if g.winner == Board.STONE_BLACK:
-                probs[0] += 1.0 / games
+                probs[0] += 1
             elif g.winner == Board.STONE_WHITE:
-                probs[1] += 1.0 / games
+                probs[1] += 1
             else:
-                probs[2] += 1.0 / games
+                probs[2] += 1
 
-            g = Game(Board(), s1, rand)
+            s1.stand_for = Board.STONE_BLACK
+            s2.stand_for = Board.STONE_WHITE
+            g = Game(Board.rand_generate_a_position(), s1, s2)
             g.step_to_end()
             if g.winner == Board.STONE_BLACK:
-                probs[3] += 1.0 / games
+                probs[3] += 1
             elif g.winner == Board.STONE_WHITE:
-                probs[4] += 1.0 / games
+                probs[4] += 1
             else:
-                probs[5] += 1.0 / games
+                probs[5] += 1
 
-        s1.epsilon, s1.is_learning = old_epsilon1, old_is_learning1      
-        s2.epsilon, s2.is_learning = old_epsilon2, old_is_learning2
-        s2.stand_for = old_stand_for2
+        probs = [i / games for i in probs]
+#         print(probs)
+
+        s1.epsilon, s1.is_learning, s1.stand_for = old_epsilon1, old_is_learning1, old_stand_for1
+        s2.epsilon, s2.is_learning, s2.stand_for = old_epsilon2, old_is_learning2, old_stand_for2
         return probs
 
     def draw_perf(self, perf):
-        series = ['P1-Win','P1-Lose','P1-Draw','P2-Win','P2-Lose','P2-Draw']
-        colors = ['r','b','g','c','m','y']
+        series = ['P1-Win', 'P1-Lose', 'P1-Draw', 'P2-Win', 'P2-Lose', 'P2-Draw']
+        colors = ['r', 'b', 'g', 'c', 'm', 'y']
         plt.figure()
         axes = plt.gca()
         axes.set_ylim([-0.1, 1.1])
-        for i in range(1,len(perf)):
-            plt.plot(perf[0], perf[i], label=series[i-1], color=colors[i-1])
+        for i in range(1, len(perf)):
+            plt.plot(perf[0], perf[i], label=series[i - 1], color=colors[i - 1])
         plt.legend()
         plt.show()
 #         plt.savefig('selfplay_random_{0}loss.png'.format(p1.lossval))
-        
+
         plt.figure(self.fig.number)
-        
-        
-        
+
 
     def train(self):
-        max_explore_rate = 0.3
+        max_explore_rate = 0.8
         feat = Board.BOARD_SIZE ** 2 * 2 + 1
 
         if self.strategy_1 is None:
             s1 = StrategyTD(feat, feat * 2 // 3)
             s1.stand_for = Board.STONE_BLACK
     #         s1.alpha = 0.3
-    #         s1.beta = 0.3        
+    #         s1.beta = 0.3
             s1.lambdaa = 0.05
             s1.epsilon = 0.3
             self.strategy_1 = s1
         else:
             s1 = self.strategy_1
             s1.epsilon = 0.3
-            s1.is_learning = True
+        s1.is_learning = True
+        s1.stand_for = Board.STONE_WHITE
 
         if self.strategy_2 is None:
             s2 = StrategyTD(feat, feat * 2 // 3)
@@ -228,22 +243,23 @@ class Gui(object):
             s2 = self.strategy_2
             s2.is_learning = False
 #         s2 = StrategyRand()
-#         s2.stand_for = Board.STONE_WHITE
+        s2.stand_for = Board.STONE_BLACK
 
         win1, win2, draw = 0, 0, 0
         step_counter, explo_counter = 0, 0
         begin = datetime.datetime.now()
-        episodes = 1000
+        episodes = 20000
 #         rec = []
         perf = [[] for _ in range(7)]
         learner = s1 if s1.is_learning else s2
-        past_me = learner.mind_clone()
+        oppo = self.which_one(Board.oppo(learner.stand_for))
+#         past_me = learner.mind_clone()
         for i in range(episodes):
-            learner.epsilon = max_explore_rate * np.exp(-4*i/episodes)
-            if i % 100 == 0:
+            learner.epsilon = max_explore_rate * np.exp(-4 * i / episodes)
+            if i % 200 == 0:
 #                 print(np.allclose(s1.hidden_weights, past_me.hidden_weights))
-                probs = self.measure_perf(learner, past_me)
-                past_me = learner.mind_clone()                
+                probs = self.measure_perf(learner, oppo)
+#                 past_me = learner.mind_clone()
                 perf[0].append(i)
                 for idx, x in enumerate(probs):
                     perf[idx + 1].append(x)
