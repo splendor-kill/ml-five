@@ -50,7 +50,8 @@ class Game(object):
         
         if self.strat1 == self.strat2:
             self.strat1.stand_for = Board.STONE_BLACK if self.strat1.stand_for == Board.STONE_WHITE else Board.STONE_WHITE
-               
+        
+        
     def step_to_end(self):
         while True:
             self.step()

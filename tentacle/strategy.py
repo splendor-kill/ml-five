@@ -66,7 +66,9 @@ class Strategy(object):
 
     def setup(self):
         pass
-
+    
+    def mind_clone(self):
+        pass
 
 
 class StrategyProb(Strategy):
