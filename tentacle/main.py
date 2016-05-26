@@ -66,13 +66,11 @@ class Gui(object):
             # edit mode
             pass
         elif event.key == '1':
-            feat = Board.BOARD_SIZE ** 2 + 2
-            self.strategy_1 = StrategyTD(feat, feat // 2)
+            self.strategy_1 = StrategyTD(1, 1)
             self.strategy_1.load('./brain1.npz')
             self.strategy_1.stand_for = Board.STONE_BLACK
         elif event.key == '2':
-            feat = Board.BOARD_SIZE ** 2 + 2
-            self.strategy_2 = StrategyTD(feat, feat // 2)
+            self.strategy_2 = StrategyTD(1, 1)
             self.strategy_2.load('./brain2.npz')
             self.strategy_2.stand_for = Board.STONE_WHITE
         elif event.key == '3':
@@ -80,7 +78,8 @@ class Gui(object):
             self.strategy_2.save('./brain2.npz')
         elif event.key == 't':
             self.state = Gui.STATE_TRAINING
-            self.train2()
+            s1, s2 = self.init_both_sides()
+            self.train1(s1, s1)  # god view
             pass
         elif event.key == 'f2':
             self.state = Gui.STATE_PLAY
@@ -231,10 +230,10 @@ class Gui(object):
         plt.figure(self.fig.number)
 
     def init_both_sides(self):
-        feat = Board.BOARD_SIZE ** 2 * 2 + 1
+        feat = Board.BOARD_SIZE ** 2 * 2 + 2
 
         if self.strategy_1 is None:
-            s1 = StrategyTD(feat, feat * 2 // 3)
+            s1 = StrategyTD(feat, feat * 2)
             s1.stand_for = Board.STONE_BLACK
     #         s1.alpha = 0.3
     #         s1.beta = 0.3
@@ -248,7 +247,7 @@ class Gui(object):
         s1.stand_for = Board.STONE_BLACK
 
         if self.strategy_2 is None:
-            s2 = StrategyTD(feat, feat * 2 // 3)
+            s2 = StrategyTD(feat, feat * 2)
             s2.stand_for = Board.STONE_WHITE
             self.strategy_2 = s2
         else:
@@ -268,13 +267,13 @@ class Gui(object):
             the win strategy
         '''
     
-        max_explore_rate = 0.6
+        max_explore_rate = 0.95
 
         win1, win2, draw = 0, 0, 0
         step_counter, explo_counter = 0, 0
         begin = datetime.datetime.now()
-        episodes = 20000
-        samples = 50
+        episodes = 50000
+        samples = 100
         interval = episodes // samples
         perf = [[] for _ in range(7)]
         learner = s1 if s1.is_learning else s2
@@ -298,7 +297,7 @@ class Gui(object):
             step_counter += g.step_counter
             explo_counter += g.exploration_counter
 #             print('steps[%d], explos[%d]' % (g.step_counter, g.exploration_counter))
-#             print('training...%d' % i)
+            print('training...%d' % i)
 
         total = win1 + win2 + draw
         print("black win: %f" % (win1 / total))
@@ -336,11 +335,11 @@ class Gui(object):
             s1 = s2.mind_clone()
             
         #way 1: s1 follow the winner's stand-for
-#             s1.stand_for = winner.stand_for            
+            s1.stand_for = winner.stand_for            
         #way 2: s1 switch to another stand-for of winner
 #             s1.stand_for = Board.oppo(winner.stand_for)
         #way 3: s1 random select stand-for
-            s1.stand_for = np.random.choice(np.array([Board.STONE_BLACK, Board.STONE_WHITE]))
+#             s1.stand_for = np.random.choice(np.array([Board.STONE_BLACK, Board.STONE_WHITE]))
         s2.stand_for = Board.oppo(s1.stand_for)
         
         s1.is_learning = True
@@ -354,11 +353,13 @@ class Gui(object):
         '''
         s1, s2 = self.init_both_sides()
         
+        
         win_probs = []
         begin = datetime.datetime.now()
         counter = 0
         while True:
             print('epoch...%d' % counter)
+            
             winner, win_prob = self.train1(s1, s2)
             win_probs.append(win_prob)
             
