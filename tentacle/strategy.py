@@ -143,7 +143,6 @@ class StrategyTD(StrategyProb):
 
     def setup(self):
         self.prev_state = None
-        self.follow_state = None
         self.hidden_traces = np.zeros((self.hidden_neurons_num + 1, self.features_num + 1))
         self.output_traces = np.zeros((1, self.hidden_neurons_num + 1))
 
@@ -223,7 +222,7 @@ class StrategyTD(StrategyProb):
 #         assert(self.prev_state is not None)
         
         if old is None:
-            self._update_impl(self.prev_state, self.follow_state, reward)
+            self._update_impl(self.prev_state, new, reward)
         else:    
             self._update_impl(old, new, reward)
     
@@ -234,15 +233,13 @@ class StrategyTD(StrategyProb):
         
         if self.prev_state is None:
             self.prev_state = old
-            self.follow_state = new
             return       
         
         if new is None:
-            self._update_impl(self.prev_state, self.follow_state, 0)
-        else:
-            self.prev_state = old
-            self.follow_state = new
+            self._update_impl(self.prev_state, old, 0)
         
+        self.prev_state = old
+ 
           
     def _update_impl(self, old, new, reward):
 #         print('old', old.stones)
