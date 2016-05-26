@@ -74,7 +74,7 @@ class Game(object):
         
     def step_to_end(self):
         while True:
-            self.step1()
+            self.step()
             
             self.step_counter += 1
             
