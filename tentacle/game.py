@@ -49,12 +49,32 @@ class Game(object):
         self.board = new_board
         
         if self.strat1 == self.strat2:
-            self.strat1.stand_for = Board.STONE_BLACK if self.strat1.stand_for == Board.STONE_WHITE else Board.STONE_WHITE
+            self.strat1.stand_for = Board.oppo(self.strat1.stand_for)
+
+    
+    def step1(self):
+        moves, self.whose_turn = self.possible_moves(self.board)
+
+        strat = self.strat1 if self.whose_turn == self.strat1.stand_for else self.strat2
+        new_board = strat.preferred_board(self.board, moves, self)
+
+        if new_board.exploration:
+#             strat.setup()
+            self.exploration_counter += 1
+
+        self.over, self.winner, self.last_loc = new_board.is_over(self.board)
         
+        strat.update_at_end(self.board, new_board)
+
+        self.board = new_board
+        
+        if self.strat1 == self.strat2:
+            self.strat1.stand_for = Board.oppo(self.strat1.stand_for)
+            
         
     def step_to_end(self):
         while True:
-            self.step()
+            self.step1()
             
             self.step_counter += 1
             

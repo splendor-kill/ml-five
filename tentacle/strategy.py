@@ -123,8 +123,8 @@ class StrategyTD(StrategyProb):
 
         self.features_num = features_num
         self.hidden_neurons_num = hidden_neurons_num
-        self.alpha = 1. / features_num
-        self.beta = 1. / hidden_neurons_num
+        self.alpha = 0.1
+        self.beta = 0.1
         self.gamma = .9
         self.lambdaa = 0.1
         self.epsilon = 0.05
@@ -178,12 +178,12 @@ class StrategyTD(StrategyProb):
 #         print('vectorized board shape: ' + str(v.shape))
 
 #         print('b[%d], w[%d]' % (black, white))
-        iv = np.zeros(v.shape[0] * 2 + 2)
+        iv = np.zeros(v.shape[0] * 2 + 3)
         iv[0] = 1.
         iv[1:v.shape[0] + 1] = (v==Board.STONE_BLACK).astype(int)
         iv[v.shape[0] + 1:v.shape[0] * 2 + 1] = (v==Board.STONE_WHITE).astype(int)
         who = Game.whose_turn(board)
-#         iv[-2] = 1 if who == Board.STONE_BLACK else 0  # turn to black move
+        iv[-2] = 1 if who == Board.STONE_BLACK else 0  # turn to black move
         iv[-1] = 1 if who == Board.STONE_WHITE else 0  # turn to white move
 #         print(iv.shape)
 #         print(iv)
@@ -216,15 +216,15 @@ class StrategyTD(StrategyProb):
         if new.winner == Board.STONE_NOTHING:
             reward = 0
         else:
-            reward = 1 if self.stand_for == new.winner else -1
+            reward = 2 if self.stand_for == new.winner else -2
         
-        assert(self.prev_state is not None)
+#         assert(self.prev_state is not None)
         
         if old is None:
             self._update_impl(self.prev_state, self.follow_state, reward)
         else:    
             self._update_impl(old, new, reward)
-        
+    
 
     def update(self, old, new):
         if not self.needs_update():
@@ -266,6 +266,7 @@ class StrategyTD(StrategyProb):
         new_input = self.get_input_values(new)
 #         print('new input', new_input)
         new_output = self.get_output(self.get_hidden_values(new_input))
+        
         delta = reward + self.gamma * new_output - old_output
 #         print('delta[{: 12.6g}], old[{: 15.6g}], new[{: 12.6g}], reward[{: 1.1f}]'.format(delta[0], old_output[0], new_output[0], reward))
 #         bak = np.copy(self.output_weights)
