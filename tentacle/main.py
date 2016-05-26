@@ -286,8 +286,8 @@ class Gui(object):
         win1, win2, draw = 0, 0, 0
         step_counter, explo_counter = 0, 0
         begin = datetime.datetime.now()
-        episodes = 10000
-        samples = 100
+        episodes = 100000
+        samples = 500
         interval = episodes // samples
         perf = [[] for _ in range(7)]
         learner = s1 if s1.is_learning else s2

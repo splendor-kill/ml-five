@@ -27,7 +27,7 @@ class Game(object):
         strat = self.strat1 if self.whose_turn == self.strat1.stand_for else self.strat2
 #         print('who', strat.stand_for)
 
-        strat.update(None, None)
+        strat.update(self.board, None)
 
         new_board = strat.preferred_board(self.board, moves, self)
 #         print(self.board.stones)
@@ -41,9 +41,6 @@ class Game(object):
             strat.update_at_end(self.board, new_board)
             opponent_strat = self.strat1 if self.whose_turn != self.strat1.stand_for else self.strat2
             opponent_strat.update_at_end(None, new_board)
-        else:
-            strat.update(self.board, new_board)
-
                 
         self.old_board = self.board
         self.board = new_board
