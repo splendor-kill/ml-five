@@ -12,7 +12,7 @@ from tentacle.board import Board
 from tentacle.game import Game
 from tentacle.strategy import StrategyTD, StrategyRand
 from tentacle.strategy import StrategyHuman
-
+from tentacle.strategy import StrategyMinMax
 
 class Gui(object):
     STATE_IDLE = 0
@@ -79,7 +79,7 @@ class Gui(object):
         elif event.key == 't':
             self.state = Gui.STATE_TRAINING
             s1, s2 = self.init_both_sides()
-            self.train1(s1, s1)  # god view
+            self.train1(s1, s2)  # god view
             pass
         elif event.key == 'f2':
             self.state = Gui.STATE_PLAY
@@ -118,7 +118,14 @@ class Gui(object):
         return None
 
 
-    def vs_human(self, which_side_human_play):
+    def vs_human(self, which_side_human_play):        
+#         s1 = StrategyMinMax()
+#         s1.stand_for = Board.STONE_BLACK
+#         self.strategy_1 = s1        
+#         s2 = StrategyMinMax()
+#         s2.stand_for = Board.STONE_WHITE
+#         self.strategy_2 = s2
+        
         strategy = self.which_one(Board.oppo(which_side_human_play))
         if strategy is None:
             print('play with a brainy opponent')
@@ -163,14 +170,16 @@ class Gui(object):
 
     def measure_perf(self, s1, s2):
         old_epsilon1, old_is_learning1, old_stand_for1 = s1.epsilon, s1.is_learning, s1.stand_for
-        old_epsilon2, old_is_learning2, old_stand_for2 = s2.epsilon, s2.is_learning, s2.stand_for
+#         old_epsilon2, old_is_learning2, old_stand_for2 = s2.epsilon, s2.is_learning, s2.stand_for
+        old_is_learning2, old_stand_for2 = s2.is_learning, s2.stand_for
         s1.epsilon, s1.is_learning, s1.stand_for = 0, False, Board.STONE_BLACK
-        s2.epsilon, s2.is_learning, s2.stand_for = 0, False, Board.STONE_WHITE
+#         s2.epsilon, s2.is_learning, s2.stand_for = 0, False, Board.STONE_WHITE
+        s2.is_learning, s2.stand_for = False, Board.STONE_WHITE
 
         s3 = StrategyRand()
         
         probs = [0, 0, 0, 0, 0, 0]
-        games = 30
+        games = 10#30
         for i in range(games):
             #the learner s1 move first(use black)
             s1.stand_for = Board.STONE_BLACK
@@ -212,7 +221,8 @@ class Gui(object):
 #         print(probs)
 
         s1.epsilon, s1.is_learning, s1.stand_for = old_epsilon1, old_is_learning1, old_stand_for1
-        s2.epsilon, s2.is_learning, s2.stand_for = old_epsilon2, old_is_learning2, old_stand_for2
+#         s2.epsilon, s2.is_learning, s2.stand_for = old_epsilon2, old_is_learning2, old_stand_for2
+        s2.is_learning, s2.stand_for = old_is_learning2, old_stand_for2
         return probs
 
     def draw_perf(self, perf):
@@ -246,15 +256,19 @@ class Gui(object):
         s1.is_learning = True
         s1.stand_for = Board.STONE_BLACK
 
-        if self.strategy_2 is None:
-            s2 = StrategyTD(feat, feat * 2)
-            s2.stand_for = Board.STONE_WHITE
-            self.strategy_2 = s2
-        else:
-            s2 = self.strategy_2
-            s2.is_learning = False
-#         s2 = StrategyRand()
+#         if self.strategy_2 is None:
+#             s2 = StrategyTD(feat, feat * 2)
+#             s2.stand_for = Board.STONE_WHITE
+#             self.strategy_2 = s2
+#         else:
+#             s2 = self.strategy_2
+#             s2.is_learning = False
+# #         s2 = StrategyRand()
+#         s2.stand_for = Board.STONE_WHITE
+        
+        s2 = StrategyMinMax()
         s2.stand_for = Board.STONE_WHITE
+        self.strategy_2 = s2
         
         return s1, s2
     
@@ -272,7 +286,7 @@ class Gui(object):
         win1, win2, draw = 0, 0, 0
         step_counter, explo_counter = 0, 0
         begin = datetime.datetime.now()
-        episodes = 50000
+        episodes = 10000
         samples = 100
         interval = episodes // samples
         perf = [[] for _ in range(7)]

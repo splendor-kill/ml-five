@@ -6,12 +6,14 @@ import random
 
 from tentacle.board import Board
 from tentacle.game import Game
+from tentacle.dfs import Searcher
 from _hashlib import new
 
 
 class Strategy(object):
     def __init__(self):
         self.stand_for = None
+        self.is_learning = False
 
     def needs_update(self):
         pass
@@ -397,6 +399,19 @@ class StrategyHeuristic(Strategy):
 class StrategyMinMax(Strategy):
     def __init__(self):
         super().__init__()
+        self.searcher = Searcher()
 
     def preferred_board(self, old, moves, context):
-        pass
+        game = context
+        self.searcher.board = old.stones.reshape((-1, Board.BOARD_SIZE)).tolist()
+        DEPTH = 1
+        score, row, col = self.searcher.search(game.whose_turn, DEPTH)
+#         print('score%d, loc(%d, %d)'%(score, row, col))
+        
+        x = old.stones.copy()
+        x[row * Board.BOARD_SIZE + col] = game.whose_turn
+        b = Board()
+        b.stones = x
+        return b
+
+
