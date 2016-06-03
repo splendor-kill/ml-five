@@ -1,6 +1,7 @@
-import numpy as np
-import matplotlib.pyplot as plt
 from matplotlib import ticker
+
+import matplotlib.pyplot as plt
+import numpy as np
 
 
 class Board(object):
@@ -129,6 +130,9 @@ class Board(object):
             if occur.size != 0:
                 return True
         return False
+    
+    def find_conn_5_all(self, board, who):
+        pass
 
     def is_over(self, old_board):
         '''
