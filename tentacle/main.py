@@ -2,17 +2,19 @@
 # print(matplotlib.get_backend())
 # print(matplotlib.is_interactive())
 # matplotlib.use('Qt4Agg')
-import numpy as np
-import matplotlib.pyplot as plt
-import matplotlib.patches as patches
 import copy
 import datetime
 
+import matplotlib.patches as patches
+import matplotlib.pyplot as plt
+import numpy as np
 from tentacle.board import Board
 from tentacle.game import Game
-from tentacle.strategy import StrategyTD, StrategyRand
 from tentacle.strategy import StrategyHuman
 from tentacle.strategy import StrategyMinMax
+from tentacle.strategy import StrategyTD, StrategyRand
+from tentacle.use_pybrain import StrategyANN
+
 
 class Gui(object):
     STATE_IDLE = 0
@@ -179,9 +181,9 @@ class Gui(object):
         s3 = StrategyRand()
         
         probs = [0, 0, 0, 0, 0, 0]
-        games = 10#30
+        games = 10  # 30
         for i in range(games):
-            #the learner s1 move first(use black)
+            # the learner s1 move first(use black)
             s1.stand_for = Board.STONE_BLACK
             s2.stand_for = Board.STONE_WHITE
             g = Game(Board.rand_generate_a_position(), s1, s2)
@@ -191,7 +193,7 @@ class Gui(object):
             elif g.winner == Board.STONE_NOTHING:
                 probs[1] += 1
             
-            #the learner s1 move second(use white)
+            # the learner s1 move second(use white)
             s1.stand_for = Board.STONE_WHITE
             s2.stand_for = Board.STONE_BLACK
             g = Game(Board.rand_generate_a_position(), s1, s2)
@@ -201,7 +203,7 @@ class Gui(object):
             elif g.winner == Board.STONE_NOTHING:
                 probs[3] += 1
 
-            #the learner s1 move first vs. random opponent
+            # the learner s1 move first vs. random opponent
             s1.stand_for = Board.STONE_BLACK
             s3.stand_for = Board.STONE_WHITE
             g = Game(Board.rand_generate_a_position(), s1, s3)
@@ -209,7 +211,7 @@ class Gui(object):
             if g.winner == Board.STONE_BLACK:
                 probs[4] += 1
             
-            #the learner s1 move second vs. random opponent
+            # the learner s1 move second vs. random opponent
             s1.stand_for = Board.STONE_WHITE
             s3.stand_for = Board.STONE_BLACK
             g = Game(Board.rand_generate_a_position(), s1, s3)
@@ -242,17 +244,24 @@ class Gui(object):
     def init_both_sides(self):
         feat = Board.BOARD_SIZE ** 2 * 2 + 2
 
+#         if self.strategy_1 is None:
+#             s1 = StrategyTD(feat, feat * 2)
+#             s1.stand_for = Board.STONE_BLACK
+#     #         s1.alpha = 0.3
+#     #         s1.beta = 0.3
+#             s1.lambdaa = 0.05
+#             s1.epsilon = 0.3
+#             self.strategy_1 = s1
+#         else:
+#             s1 = self.strategy_1
+#             s1.epsilon = 0.3
+
         if self.strategy_1 is None:
-            s1 = StrategyTD(feat, feat * 2)
-            s1.stand_for = Board.STONE_BLACK
-    #         s1.alpha = 0.3
-    #         s1.beta = 0.3
-            s1.lambdaa = 0.05
-            s1.epsilon = 0.3
+            s1 = StrategyANN(feat, feat * 2)
             self.strategy_1 = s1
         else:
             s1 = self.strategy_1
-            s1.epsilon = 0.3
+            
         s1.is_learning = True
         s1.stand_for = Board.STONE_BLACK
 
@@ -286,8 +295,8 @@ class Gui(object):
         win1, win2, draw = 0, 0, 0
         step_counter, explo_counter = 0, 0
         begin = datetime.datetime.now()
-        episodes = 100000
-        samples = 500
+        episodes = 120000
+        samples = 400
         interval = episodes // samples
         perf = [[] for _ in range(7)]
         learner = s1 if s1.is_learning else s2
@@ -302,7 +311,7 @@ class Gui(object):
                     perf[idx + 1].append(x)
                     
             learner.epsilon = max_explore_rate * np.exp(-5 * i / episodes)
-            g = Game(self.board, s1, s2)
+            g = Game(Board(), s1, s2)
             g.step_to_end()
             win1 += 1 if g.winner == Board.STONE_BLACK else 0
             win2 += 1 if g.winner == Board.STONE_WHITE else 0
@@ -324,14 +333,19 @@ class Gui(object):
         diff = end - begin
         print("time cost[%f]s, avg.[%f]s" % (diff.total_seconds(), diff.total_seconds() / episodes))
 
-        print(perf)
+#         print(perf)
         self.draw_perf(perf)
-
+        
+        np.set_printoptions(formatter={'float_kind' : lambda x: "%.4f" % x})
+        print(s1.errors)
+        
         winner = Board.STONE_BLACK if win1 >= win2 else Board.STONE_WHITE
         return self.which_one(winner), max(win1, win2) / total
-        #plt.title('press F3 start')
+        # plt.title('press F3 start')
 #         print(len(rec))
 #         plt.plot(rec)
+
+
 
 
     def from_new_start_point(self, winner, s1, s2):
@@ -348,11 +362,11 @@ class Gui(object):
         if s2 == winner:
             s1 = s2.mind_clone()
             
-        #way 1: s1 follow the winner's stand-for
+        # way 1: s1 follow the winner's stand-for
             s1.stand_for = winner.stand_for            
-        #way 2: s1 switch to another stand-for of winner
+        # way 2: s1 switch to another stand-for of winner
 #             s1.stand_for = Board.oppo(winner.stand_for)
-        #way 3: s1 random select stand-for
+        # way 3: s1 random select stand-for
 #             s1.stand_for = np.random.choice(np.array([Board.STONE_BLACK, Board.STONE_WHITE]))
         s2.stand_for = Board.oppo(s1.stand_for)
         

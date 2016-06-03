@@ -2,3 +2,4 @@ __pycache__
 /tentacle/*.npz
 /tentacle/*.png
 /tentacle/*.txt
+result

@@ -1,13 +1,13 @@
-import numpy as np
-from scipy.special import expit
-import matplotlib.pyplot as plt
-
+from _hashlib import new
 import random
 
+from scipy.special import expit
+
+import matplotlib.pyplot as plt
+import numpy as np
 from tentacle.board import Board
-from tentacle.game import Game
 from tentacle.dfs import Searcher
-from _hashlib import new
+from tentacle.game import Game
 
 
 class Strategy(object):
@@ -16,7 +16,7 @@ class Strategy(object):
         self.is_learning = False
 
     def needs_update(self):
-        pass
+        return self.is_learning
 
     def update(self, old, new):
         pass
@@ -181,8 +181,8 @@ class StrategyTD(StrategyProb):
 #         print('b[%d], w[%d]' % (black, white))
         iv = np.zeros(v.shape[0] * 2 + 3)
         iv[0] = 1.
-        iv[1:v.shape[0] + 1] = (v==Board.STONE_BLACK).astype(int)
-        iv[v.shape[0] + 1:v.shape[0] * 2 + 1] = (v==Board.STONE_WHITE).astype(int)
+        iv[1:v.shape[0] + 1] = (v == Board.STONE_BLACK).astype(int)
+        iv[v.shape[0] + 1:v.shape[0] * 2 + 1] = (v == Board.STONE_WHITE).astype(int)
         who = Game.whose_turn(board)
         iv[-2] = 1 if who == Board.STONE_BLACK else 0  # turn to black move
         iv[-1] = 1 if who == Board.STONE_WHITE else 0  # turn to white move
@@ -207,9 +207,6 @@ class StrategyTD(StrategyProb):
         return expit(v)
 #         return v
 
-    def needs_update(self):
-        return self.is_learning
-
     def update_at_end(self, old, new):
         if not self.needs_update():
             return
@@ -218,11 +215,10 @@ class StrategyTD(StrategyProb):
             reward = 0
         else:
             reward = 2 if self.stand_for == new.winner else -2
-        
-#         assert(self.prev_state is not None)
-        
+                
         if old is None:
-            self._update_impl(self.prev_state, new, reward)
+            if self.prev_state is not None:
+                self._update_impl(self.prev_state, new, reward)
         else:    
             self._update_impl(old, new, reward)
     
@@ -285,7 +281,7 @@ class StrategyTD(StrategyProb):
                  alpha=self.alpha,
                  beta=self.beta,
                  gamma=self.gamma,
-                 lambdaa=self.lambdaa,                 
+                 lambdaa=self.lambdaa,
                  epsilon=self.epsilon
                  )
         print('save OK')
