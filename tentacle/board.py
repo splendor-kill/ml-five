@@ -33,16 +33,21 @@ class Board(object):
 
     @staticmethod
     def rand_generate_a_position():
-        b = Board()
-        m = b.stones
-        most = m.size // 2
-        white = np.random.randint(most)
-        m[0:white] = Board.STONE_WHITE
-        m[white:white * 2] = Board.STONE_BLACK
-        m[white * 2] = np.random.randint(1)
-       
-        np.random.shuffle(m)
-        return b      
+        while True:
+            b = Board()
+            m = b.stones
+            most = m.size // 2
+            white = np.random.randint(most)
+            m[0:white] = Board.STONE_WHITE
+            m[white:white * 2] = Board.STONE_BLACK
+            m[white * 2] = np.random.randint(1)
+           
+            np.random.shuffle(m)
+            
+            m2 = m.reshape(-1, Board.BOARD_SIZE)            
+            if not Board.find_conn_5_all(m2):
+                return b
+            
 
     def show(self):
         fig = plt.figure()
@@ -67,9 +72,16 @@ class Board(object):
     def move(self, x, y, v):
         if v != Board.STONE_BLACK and v != Board.STONE_WHITE:
             raise Exception('illegal arg v[%d]' % (v))
-        if self.stones[x, y] != 0:
+        grid = self.stones.reshape(-1, Board.BOARD_SIZE)
+        if grid[x, y] != 0:
             raise Exception('cannot move here')
-        self.stones[x, y] = v
+        grid[x, y] = v
+        
+    def is_legal(self, x, y):
+        """
+            :type pos tuple(x, y)
+        """
+        return self.stones[x * Board.BOARD_SIZE + y] == Board.STONE_NOTHING
 
     @staticmethod
     def oppo(who):
@@ -131,8 +143,28 @@ class Board(object):
                 return True
         return False
     
-    def find_conn_5_all(self, board, who):
-        pass
+    
+    @staticmethod
+    def find_conn_5_all(board):
+        lines = []
+        for i in range(Board.BOARD_SIZE):
+            lines.append(Board._row(board, i, 0))
+            lines.append(Board._col(board, 0, i))
+            lines.append(Board._diag(board, i, 0))
+            lines.append(Board._diag(board, 0, i))
+            lines.append(Board._diag_counter(board, i, Board.BOARD_SIZE - 1))
+            lines.append(Board._diag_counter(board, 0, i))
+        for v in lines:
+            if v.size < Board.WIN_STONE_NUM:
+                continue
+            occur = Board._find_subseq(v, Board.WIN_PATTERN[Board.STONE_BLACK])
+            if occur.size != 0:
+                return True
+            occur = Board._find_subseq(v, Board.WIN_PATTERN[Board.STONE_WHITE])
+            if occur.size != 0:
+                return True
+            
+        return False
 
     def is_over(self, old_board):
         '''
