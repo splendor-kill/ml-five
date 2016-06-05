@@ -13,7 +13,7 @@ from tentacle.game import Game
 from tentacle.strategy import StrategyHuman
 from tentacle.strategy import StrategyMinMax
 from tentacle.strategy import StrategyTD, StrategyRand
-from tentacle.use_pybrain import StrategyANN
+from tentacle.strategy_ann import StrategyANN
 
 
 class Gui(object):
@@ -272,8 +272,7 @@ class Gui(object):
 #         else:
 #             s2 = self.strategy_2
 #             s2.is_learning = False
-# #         s2 = StrategyRand()
-#         s2.stand_for = Board.STONE_WHITE
+#         s2 = StrategyRand()
         
         s2 = StrategyMinMax()
         s2.stand_for = Board.STONE_WHITE
@@ -295,12 +294,13 @@ class Gui(object):
         win1, win2, draw = 0, 0, 0
         step_counter, explo_counter = 0, 0
         begin = datetime.datetime.now()
-        episodes = 120000
-        samples = 400
+        episodes = 10000        
+        samples = 100
         interval = episodes // samples
         perf = [[] for _ in range(7)]
         learner = s1 if s1.is_learning else s2
         oppo = self.which_one(Board.oppo(learner.stand_for))
+        stat_win = []
 #         past_me = learner.mind_clone()
         for i in range(episodes):
             if (i + 1) % interval == 0:
@@ -310,12 +310,14 @@ class Gui(object):
                 for idx, x in enumerate(probs):
                     perf[idx + 1].append(x)
                     
-            learner.epsilon = max_explore_rate * np.exp(-5 * i / episodes)
+            learner.epsilon = max_explore_rate * np.exp(-5 * i / episodes) #* (1 if i < episodes//2 else 0.3) #
             g = Game(Board(), s1, s2)
             g.step_to_end()
             win1 += 1 if g.winner == Board.STONE_BLACK else 0
             win2 += 1 if g.winner == Board.STONE_WHITE else 0
             draw += 1 if g.winner == Board.STONE_NOTHING else 0
+            
+            stat_win.append(win1 - win2 - draw)
 #             rec.append(win1)
             step_counter += g.step_counter
             explo_counter += g.exploration_counter
@@ -328,16 +330,19 @@ class Gui(object):
         print("draw: %f" % (draw / total))
 
         print('avg. steps[%f], avg. explos[%f]' % (step_counter / episodes, explo_counter / episodes))
-
+        
         end = datetime.datetime.now()
         diff = end - begin
         print("time cost[%f]s, avg.[%f]s" % (diff.total_seconds(), diff.total_seconds() / episodes))
 
+        with open('stat-result-win.txt', 'w') as f:
+            f.write(repr(stat_win))
 #         print(perf)
         self.draw_perf(perf)
         
-        np.set_printoptions(formatter={'float_kind' : lambda x: "%.4f" % x})
-        print(s1.errors)
+        np.set_printoptions(threshold=np.nan, formatter={'float_kind' : lambda x: "%.4f" % x})
+        with open('stat-result-net-train-errors.txt', 'w') as f:
+            f.write(repr(np.array(s1.errors)))
         
         winner = Board.STONE_BLACK if win1 >= win2 else Board.STONE_WHITE
         return self.which_one(winner), max(win1, win2) / total

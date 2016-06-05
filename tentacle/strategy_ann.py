@@ -1,5 +1,6 @@
-from numpy import random
+from numpy import random, float64
 from pybrain.datasets.supervised import SupervisedDataSet
+from pybrain.structure.networks.custom.convboard import ConvolutionalBoardNetwork
 from pybrain.supervised.trainers.backprop import BackpropTrainer
 from pybrain.tools.shortcuts import buildNetwork
 
@@ -16,10 +17,20 @@ class StrategyANN(Strategy):
         self.is_learning = True
 
         self.features_num = features_num
-        self.net = buildNetwork(features_num, hidden_neurons_num, 1, bias = True)
-        self.trainer = BackpropTrainer(self.net)
+#         self.net = buildNetwork(features_num, hidden_neurons_num, 1, bias = True)
+#         self.net = buildNetwork(features_num, hidden_neurons_num, hidden_neurons_num, 1, bias = True)
+#         self.net = ConvolutionalBoardNetwork(Board.BOARD_SIZE, 5, 3)
+#         self.trainer = BackpropTrainer(self.net)
+        
+        self.net_attack = buildNetwork(features_num, hidden_neurons_num, hidden_neurons_num, 1, bias = True)
+        self.net_defence = buildNetwork(features_num, hidden_neurons_num, hidden_neurons_num, 1, bias = True)
+        self.trainer_attack = BackpropTrainer(self.net_attack)
+        self.trainer_defence = BackpropTrainer(self.net_defence)
+                
         self.gamma = 0.9
         self.errors = []
+        self.buf = np.zeros(200)
+        self.buf_index = 0
         self.setup()        
         
         
@@ -56,20 +67,62 @@ class StrategyANN(Strategy):
     def _update_impl(self, old, new, reward):
         old_input = self.get_input_values(old)
 
-        v1 = self.net.activate(self.get_input_values(new))
-        target = reward + self.gamma * v1
+        v1_a = self.net_attack.activate(self.get_input_values(new))
+        target = self.gamma * v1_a
         
-        ds = SupervisedDataSet(self.features_num, 1)
-        ds.addSample(old_input, target)
-        self.trainer.setData(ds)
-        err = self.trainer.train()
-        if len(self.errors) < 1000 or err > 1:
-            self.errors.append(err)
+        ds_a = SupervisedDataSet(self.features_num, 1)
+        ds_a.addSample(old_input, target + max(0, reward))
+        ds_d = SupervisedDataSet(self.features_num, 1)
+        ds_d.addSample(old_input, target + min(0, reward))
+#         self.trainer.setData(ds)
+#         err = self.trainer.train()
+        self.trainer_attack.setData(ds_a)
+        self.trainer_attack.train()
+        self.trainer_defence.setData(ds_d)
+        self.trainer_defence.train()
         
+#         self.buf[self.buf_index] = err
+#         self.buf_index += 1
+#         if self.buf_index >= self.buf.size:
+#             if len(self.errors) < 2000:
+#                 self.errors.append(np.average(self.buf))
+#             self.buf.fill(0)
+#             self.buf_index = 0
+            
 
     def board_value(self, board, context):
-        return self.net.activate(self.get_input_values(board))
+        iv = self.get_input_values(board)
+#         return self.net.activate(iv)
+        return self.net_attack.activate(iv), self.net_defence.activate(iv)
     
+    def _decide_move(self, moves):
+        best_move_a, best_av = None, None
+        best_move_d, best_dv = None, None
+        for m in moves:
+            iv = self.get_input_values(m)
+            av, dv = self.net_attack.activate(iv), self.net_defence.activate(iv)
+            if best_av is None or best_av < av:
+                best_move_a, best_av = m, av
+            if best_dv is None or best_dv < dv:
+                best_move_d, best_dv = m, dv
+        return best_move_a if best_av >= best_dv else best_move_d
+            
+
+    def preferred_board(self, old, moves, context):
+        if not moves:
+            return old
+        if len(moves) == 1:
+            return moves[0]
+
+        if np.random.rand() < self.epsilon:  # exploration
+            the_board = random.choice(moves)
+            the_board.exploration = True
+            return the_board
+        else:
+#             board_most_value = max(moves, key=lambda m: self.board_value(m, context))            
+#             return board_most_value
+            return self._decide_move(moves)
+        
 
     def get_input_values(self, board):
         '''

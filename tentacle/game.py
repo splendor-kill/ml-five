@@ -32,7 +32,7 @@ class Game(object):
         new_board = strat.preferred_board(self.board, moves, self)
 #         print(self.board.stones)
         if new_board.exploration:
-#             strat.setup()
+            strat.setup()
             self.exploration_counter += 1
 
         self.over, self.winner, self.last_loc = new_board.is_over(self.board)
