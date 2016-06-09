@@ -10,7 +10,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from tentacle.board import Board
 from tentacle.game import Game
-from tentacle.strategy import StrategyHuman
+from tentacle.strategy import StrategyHuman, StrategyMC
 from tentacle.strategy import StrategyMinMax
 from tentacle.strategy import StrategyTD, StrategyRand
 from tentacle.strategy_ann import StrategyANN
@@ -23,6 +23,8 @@ class Gui(object):
     RESULT_MSG = {Board.STONE_BLACK: 'Black Win',
                   Board.STONE_WHITE: 'White Win',
                   Board.STONE_NOTHING: 'Draw'}
+    
+    
 
     def __init__(self, board):
         self.board = board
@@ -80,14 +82,17 @@ class Gui(object):
             self.strategy_2.save('./brain2.npz')
         elif event.key == 't':
             self.state = Gui.STATE_TRAINING
+            Game.on_training = True
             s1, s2 = self.init_both_sides()
             self.train1(s1, s2)  # god view
             pass
         elif event.key == 'f2':
             self.state = Gui.STATE_PLAY
+            Game.on_training = False
             self.vs_human(Board.STONE_BLACK)
         elif event.key == 'f3':
             self.state = Gui.STATE_PLAY
+            Game.on_training = False
             self.vs_human(Board.STONE_WHITE)
         elif event.key == 'f1':
             pass
@@ -257,13 +262,16 @@ class Gui(object):
 #             s1.epsilon = 0.3
 
         if self.strategy_1 is None:
-            s1 = StrategyANN(feat, feat * 2)
+            s1 = StrategyMC()
+#             s1 = StrategyANN(feat, feat * 2)
             self.strategy_1 = s1
         else:
             s1 = self.strategy_1
+
             
         s1.is_learning = True
         s1.stand_for = Board.STONE_BLACK
+
 
 #         if self.strategy_2 is None:
 #             s2 = StrategyTD(feat, feat * 2)
@@ -272,9 +280,9 @@ class Gui(object):
 #         else:
 #             s2 = self.strategy_2
 #             s2.is_learning = False
-#         s2 = StrategyRand()
+        s2 = StrategyRand()
         
-        s2 = StrategyMinMax()
+#         s2 = StrategyMinMax()
         s2.stand_for = Board.STONE_WHITE
         self.strategy_2 = s2
         
@@ -294,7 +302,7 @@ class Gui(object):
         win1, win2, draw = 0, 0, 0
         step_counter, explo_counter = 0, 0
         begin = datetime.datetime.now()
-        episodes = 10000        
+        episodes = 3
         samples = 100
         interval = episodes // samples
         perf = [[] for _ in range(7)]
@@ -303,12 +311,12 @@ class Gui(object):
         stat_win = []
 #         past_me = learner.mind_clone()
         for i in range(episodes):
-            if (i + 1) % interval == 0:
-#                 print(np.allclose(s1.hidden_weights, past_me.hidden_weights))
-                probs = self.measure_perf(learner, oppo)
-                perf[0].append(i)
-                for idx, x in enumerate(probs):
-                    perf[idx + 1].append(x)
+#             if (i + 1) % interval == 0:
+# #                 print(np.allclose(s1.hidden_weights, past_me.hidden_weights))
+#                 probs = self.measure_perf(learner, oppo)
+#                 perf[0].append(i)
+#                 for idx, x in enumerate(probs):
+#                     perf[idx + 1].append(x)
                     
             learner.epsilon = max_explore_rate * np.exp(-5 * i / episodes) #* (1 if i < episodes//2 else 0.3) #
             g = Game(Board(), s1, s2)
@@ -340,9 +348,9 @@ class Gui(object):
 #         print(perf)
         self.draw_perf(perf)
         
-        np.set_printoptions(threshold=np.nan, formatter={'float_kind' : lambda x: "%.4f" % x})
-        with open('stat-result-net-train-errors.txt', 'w') as f:
-            f.write(repr(np.array(s1.errors)))
+#         np.set_printoptions(threshold=np.nan, formatter={'float_kind' : lambda x: "%.4f" % x})
+#         with open('stat-result-net-train-errors.txt', 'w') as f:
+#             f.write(repr(np.array(s1.errors)))
         
         winner = Board.STONE_BLACK if win1 >= win2 else Board.STONE_WHITE
         return self.which_one(winner), max(win1, win2) / total

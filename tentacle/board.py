@@ -90,7 +90,13 @@ class Board(object):
         if who == Board.STONE_WHITE:
             return Board.STONE_BLACK
         raise Exception('illegal arg who[%d]' % (who))
-        
+    
+    @staticmethod
+    def change(old, new):
+        d = np.nonzero(new.stones - old.stones)
+        if d[0].size == 0:
+            return None
+        return d[0][0]
 
     @staticmethod
     def _row(arr2d, row, col):
@@ -214,4 +220,8 @@ class Board(object):
             return True, Board.STONE_NOTHING, loc
 
         return False, None, loc
+    
+    def __str__(self):
+#         grid = self.stones.reshape(-1, Board.BOARD_SIZE)
+        return str(self.stones)
 
