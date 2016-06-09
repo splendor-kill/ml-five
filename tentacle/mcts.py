@@ -29,6 +29,8 @@ class MonteCarlo(object):
 
         if Game.on_training:
             self.calculation_time = 60
+        else:
+            self.calculation_time = 0.5
         
         self.max_depth = 0
         self.stats = {}

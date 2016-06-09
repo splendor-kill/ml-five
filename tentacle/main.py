@@ -80,6 +80,14 @@ class Gui(object):
         elif event.key == '3':
             self.strategy_1.save('./brain1.npz')
             self.strategy_2.save('./brain2.npz')
+        elif event.key == '4':
+            self.strategy_1 = StrategyMC()
+            self.strategy_1.load('./brain1.npz')
+            self.strategy_1.stand_for = Board.STONE_BLACK
+        elif event.key == '5':
+            self.strategy_2 = StrategyMC()
+            self.strategy_2.load('./brain2.npz')
+            self.strategy_2.stand_for = Board.STONE_WHITE
         elif event.key == 't':
             self.state = Gui.STATE_TRAINING
             Game.on_training = True
@@ -302,7 +310,7 @@ class Gui(object):
         win1, win2, draw = 0, 0, 0
         step_counter, explo_counter = 0, 0
         begin = datetime.datetime.now()
-        episodes = 3
+        episodes = 10
         samples = 100
         interval = episodes // samples
         perf = [[] for _ in range(7)]
@@ -346,7 +354,7 @@ class Gui(object):
         with open('stat-result-win.txt', 'w') as f:
             f.write(repr(stat_win))
 #         print(perf)
-        self.draw_perf(perf)
+#         self.draw_perf(perf)
         
 #         np.set_printoptions(threshold=np.nan, formatter={'float_kind' : lambda x: "%.4f" % x})
 #         with open('stat-result-net-train-errors.txt', 'w') as f:
