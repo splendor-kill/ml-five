@@ -1,4 +1,5 @@
 from _hashlib import new
+import pickle
 import random
 
 from scipy.special import expit
@@ -420,4 +421,14 @@ class StrategyMC(Strategy):
         
     def update(self, old, new):
         self.mc.update(old)
+        
+    def save(self, file):
+        with open(file, 'wb') as f:
+            pickle.dump((self.mc.plays, self.mc.wins), f)        
+        print('save OK')
+
+    def load(self, file):
+        with open(file, 'rb') as f:
+            self.mc.plays, self.mc.wins = pickle.load(f)
+        print('load OK')
     
