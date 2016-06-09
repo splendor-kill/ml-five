@@ -8,6 +8,7 @@ import numpy as np
 from tentacle.board import Board
 from tentacle.dfs import Searcher
 from tentacle.game import Game
+from tentacle.mcts import MonteCarlo
 
 
 class Strategy(object):
@@ -408,3 +409,15 @@ class StrategyMinMax(Strategy):
         return b
 
 
+class StrategyMC(Strategy):
+    def __init__(self):
+        super().__init__()
+        self.mc = MonteCarlo()
+        
+    def preferred_board(self, old, moves, context):
+        game = context        
+        return self.mc.select(old, moves, game.whose_turn, context = game)
+        
+    def update(self, old, new):
+        self.mc.update(old)
+    

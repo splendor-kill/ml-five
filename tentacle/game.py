@@ -3,6 +3,9 @@ from tentacle.board import Board
 
 
 class Game(object):
+    
+    on_training = False
+    
     def __init__(self, board, strat1, strat2, gui=None):
         self.board = board
         self.strat1 = strat1
@@ -22,7 +25,7 @@ class Game(object):
 
 
     def step(self):
-        moves, self.whose_turn = self.possible_moves(self.board)
+        moves, self.whose_turn = Game.possible_moves(self.board)
 
         strat = self.strat1 if self.whose_turn == self.strat1.stand_for else self.strat2
 #         print('who', strat.stand_for)
@@ -30,6 +33,7 @@ class Game(object):
         strat.update(self.board, None)
 
         new_board = strat.preferred_board(self.board, moves, self)
+#         print('who%d play at %s'%(self.whose_turn, str(divmod(Board.change(self.board, new_board), Board.BOARD_SIZE))))
 #         print(self.board.stones)
         if new_board.exploration:
             strat.setup()
@@ -50,7 +54,7 @@ class Game(object):
 
     
     def step1(self):
-        moves, self.whose_turn = self.possible_moves(self.board)
+        moves, self.whose_turn = Game.possible_moves(self.board)
 
         strat = self.strat1 if self.whose_turn == self.strat1.stand_for else self.strat2
         new_board = strat.preferred_board(self.board, moves, self)
@@ -102,8 +106,8 @@ class Game(object):
             return Board.STONE_WHITE  # turn to while
         raise Exception("illegal state")
 
-
-    def possible_moves(self, board):
+    @staticmethod
+    def possible_moves(board):
         '''
         Returns:
         --------------
