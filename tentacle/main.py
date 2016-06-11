@@ -310,7 +310,7 @@ class Gui(object):
         win1, win2, draw = 0, 0, 0
         step_counter, explo_counter = 0, 0
         begin = datetime.datetime.now()
-        episodes = 10
+        episodes = 30
         samples = 100
         interval = episodes // samples
         perf = [[] for _ in range(7)]

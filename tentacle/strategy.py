@@ -414,21 +414,21 @@ class StrategyMC(Strategy):
     def __init__(self):
         super().__init__()
         self.mc = MonteCarlo()
-        
+
     def preferred_board(self, old, moves, context):
-        game = context        
-        return self.mc.select(old, moves, game.whose_turn, context = game)
-        
+        game = context
+        return self.mc.select(old, moves, game.whose_turn, context=game)
+
     def update(self, old, new):
-        self.mc.update(old)
-        
+        pass
+
     def save(self, file):
         with open(file, 'wb') as f:
-            pickle.dump((self.mc.plays, self.mc.wins), f)        
+            pickle.dump(self.mc.net, f)
         print('save OK')
 
     def load(self, file):
         with open(file, 'rb') as f:
-            self.mc.plays, self.mc.wins = pickle.load(f)
+            self.mc.net = pickle.load(f)
         print('load OK')
     
