@@ -29,6 +29,7 @@ class MonteCarlo(object):
         self.trainer = BackpropTrainer(self.net)
 
         self.total_sim = 0
+        self.observation = []
 
 
     def select(self, board, moves, who, **kwargs):
@@ -54,7 +55,7 @@ class MonteCarlo(object):
 #                 break
 
         self.stats.update(games=games, max_depth=self.max_depth, time=str(time.time() - begin))
-        print(self.stats['games'], self.stats['max_depth'], self.stats['time'])
+        print(self.stats['games'], self.stats['time'])
 
         move, _ = self.get_best(board, moves, who)
         return move
@@ -107,3 +108,24 @@ class MonteCarlo(object):
         iv[-1] = 1 if who == Board.STONE_WHITE else 0  # turn to white move
         return iv
 
+    
+    def swallow(self, who, st0, st1):
+        self.observation.append((who, st0, st1))
+    
+    def absorb(self, winner, **kwargs):
+        total_sim = 'episode' in kwargs and kwargs['episode'] or 1
+        ds = SupervisedDataSet(self.features_num, 2)
+        for who, s0, s1 in self.observation:
+            input_vec = self.get_input_values(s0, s1, who)
+            val = self.net.activate(input_vec)
+            plays = val[1] * total_sim + 1
+            wins = val[0] * total_sim
+            if who == winner:
+                wins += 1
+            ds.addSample(input_vec, (wins, plays))
+        self.trainer.trainOnDataset(ds)
+    
+    def void(self):
+        self.observation = []
+    
+    

@@ -410,7 +410,18 @@ class StrategyMinMax(Strategy):
         return b
 
 
-class StrategyMC(Strategy):
+class Auditor(object):
+    def on_episode_start(self):
+        pass
+        
+    def swallow(self, who, st0, st1):
+        pass
+    
+    def absorb(self, winner, **kwargs):
+        pass    
+
+
+class StrategyMC(Strategy, Auditor):
     def __init__(self):
         super().__init__()
         self.mc = MonteCarlo()
@@ -421,6 +432,15 @@ class StrategyMC(Strategy):
 
     def update(self, old, new):
         pass
+
+    def on_episode_start(self):
+        self.mc.void()
+        
+    def swallow(self, who, st0, st1):
+        self.mc.swallow(who, st0, st1)
+    
+    def absorb(self, winner, **kwargs):
+        self.mc.absorb(winner, **kwargs)
 
     def save(self, file):
         with open(file, 'wb') as f:
