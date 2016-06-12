@@ -29,6 +29,10 @@ class Gui(object):
     def __init__(self, board):
         self.board = board
         size = Board.BOARD_SIZE
+        
+        keymap = [k for k in plt.rcParams.keys() if k.startswith('keymap.')]
+        for k in keymap:
+            plt.rcParams[k] = ''
 
         self.fig = plt.figure(figsize=((size + 1) / 2.54, (size + 1) / 2.54), facecolor='#FFE991')
         self.fig.canvas.set_window_title('Training')
@@ -93,7 +97,8 @@ class Gui(object):
             Game.on_training = True
             s1, s2 = self.init_both_sides()
             self.train1(s1, s2)  # god view
-            pass
+        elif event.key == 'r':
+            self.learn_from_2_teachers()
         elif event.key == 'f2':
             self.state = Gui.STATE_PLAY
             Game.on_training = False
@@ -367,6 +372,44 @@ class Gui(object):
 #         plt.plot(rec)
 
 
+    def learn_from_2_teachers(self):
+        s1 = StrategyMinMax()
+        s1.stand_for = Board.STONE_BLACK
+        self.strategy_1 = s1
+
+        s2 = StrategyMinMax()
+        s2.stand_for = Board.STONE_WHITE
+        self.strategy_2 = s2
+
+        observer = StrategyMC()
+
+        win1, win2, draw = 0, 0, 0
+        step_counter, explo_counter = 0, 0
+        begin = datetime.datetime.now()
+        episodes = 100000
+        for i in range(episodes):
+            g = Game(Board.rand_generate_a_position(), s1, s2, observer=observer)
+            g.step_to_end(episode=i)
+            win1 += 1 if g.winner == Board.STONE_BLACK else 0
+            win2 += 1 if g.winner == Board.STONE_WHITE else 0
+            draw += 1 if g.winner == Board.STONE_NOTHING else 0
+
+            step_counter += g.step_counter
+            explo_counter += g.exploration_counter
+            print('training...%d' % i)
+
+        total = win1 + win2 + draw
+        print("black win: %f" % (win1 / total))
+        print("white win: %f" % (win2 / total))
+        print("draw: %f" % (draw / total))
+
+        print('avg. steps[%f], avg. explos[%f]' % (step_counter / episodes, explo_counter / episodes))
+
+        end = datetime.datetime.now()
+        diff = end - begin
+        print("time cost[%f]s, avg.[%f]s" % (diff.total_seconds(), diff.total_seconds() / episodes))
+        
+        observer.save('./brain1.npz')
 
 
     def from_new_start_point(self, winner, s1, s2):
