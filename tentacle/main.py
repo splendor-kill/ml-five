@@ -315,7 +315,7 @@ class Gui(object):
         win1, win2, draw = 0, 0, 0
         step_counter, explo_counter = 0, 0
         begin = datetime.datetime.now()
-        episodes = 30
+        episodes = 5
         samples = 100
         interval = episodes // samples
         perf = [[] for _ in range(7)]
@@ -386,10 +386,10 @@ class Gui(object):
         win1, win2, draw = 0, 0, 0
         step_counter, explo_counter = 0, 0
         begin = datetime.datetime.now()
-        episodes = 100000
+        episodes = 10000
         for i in range(episodes):
-            g = Game(Board.rand_generate_a_position(), s1, s2, observer=observer)
-            g.step_to_end(episode=i)
+            g = Game(Board(), s1, s2, observer=observer)
+            g.step_to_end()
             win1 += 1 if g.winner == Board.STONE_BLACK else 0
             win2 += 1 if g.winner == Board.STONE_WHITE else 0
             draw += 1 if g.winner == Board.STONE_NOTHING else 0
