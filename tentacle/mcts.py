@@ -30,7 +30,7 @@ class MonteCarlo(object):
 
         self.total_sim = 0
         self.observation = []
-
+        
 
     def select(self, board, moves, who, **kwargs):
         # Bail out early if there is no real choice to be made.
@@ -42,7 +42,7 @@ class MonteCarlo(object):
         if Game.on_training:
             self.calculation_time = 60
         else:
-            self.calculation_time = 0.5
+            self.calculation_time = 1
 
         self.max_depth = 0
         self.stats = {}
@@ -51,8 +51,8 @@ class MonteCarlo(object):
         while time.time() - begin < self.calculation_time:
             self.sim(board)
             games += 1
-#             if games > 0:
-#                 break
+            if games > 10:
+                break
 
         self.stats.update(games=games, max_depth=self.max_depth, time=str(time.time() - begin))
         print(self.stats['games'], self.stats['time'])
@@ -113,13 +113,16 @@ class MonteCarlo(object):
         self.observation.append((who, st0, st1))
     
     def absorb(self, winner, **kwargs):
-        total_sim = 'episode' in kwargs and kwargs['episode'] or 1
+        self.total_sim += 1
+        
         ds = SupervisedDataSet(self.features_num, 2)
         for who, s0, s1 in self.observation:
+            if who != Board.STONE_BLACK:
+                continue
             input_vec = self.get_input_values(s0, s1, who)
             val = self.net.activate(input_vec)
-            plays = val[1] * total_sim + 1
-            wins = val[0] * total_sim
+            plays = val[1] * self.total_sim + 1
+            wins = val[0] * self.total_sim
             if who == winner:
                 wins += 1
             ds.addSample(input_vec, (wins, plays))

@@ -24,7 +24,7 @@ class Game(object):
         self.strat2.setup()
         self.observer = observer
 
-    def step(self, **kwargs):
+    def step(self):
         moves, self.whose_turn = Game.possible_moves(self.board)
 
         strat = self.strat1 if self.whose_turn == self.strat1.stand_for else self.strat2
@@ -49,7 +49,7 @@ class Game(object):
             opponent_strat = self.strat1 if self.whose_turn != self.strat1.stand_for else self.strat2
             opponent_strat.update_at_end(None, new_board)
             if self.observer is not None:
-                self.observer.absorb(self.whose_turn, **kwargs)
+                self.observer.absorb(self.whose_turn)
                 
         self.old_board = self.board
         self.board = new_board
@@ -78,10 +78,11 @@ class Game(object):
             self.strat1.stand_for = Board.oppo(self.strat1.stand_for)
             
         
-    def step_to_end(self, **kwargs):
-        self.observer.on_episode_start()
+    def step_to_end(self):
+        if self.observer is not None:
+            self.observer.on_episode_start()
         while True:
-            self.step(**kwargs)
+            self.step()
             
             self.step_counter += 1
             
