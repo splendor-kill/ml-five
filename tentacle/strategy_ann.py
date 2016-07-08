@@ -38,7 +38,7 @@ class StrategyANN(Strategy):
         if not self.needs_update():
             return
                 
-        if new.winner == Board.STONE_NOTHING:
+        if new.winner == Board.STONE_EMPTY:
             reward = 0
         else:
             reward = 2 if self.stand_for == new.winner else -2

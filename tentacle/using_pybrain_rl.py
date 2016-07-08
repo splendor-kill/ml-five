@@ -43,8 +43,8 @@ class FiveGame(TwoPlayerGame):
             return True
         else:
             self.b.move(pos[0], pos[1], c)
-            if self.movesDone == Board.BOARD_SIZE * Board.BOARD_SIZE:
-                self.winner = Board.STONE_NOTHING
+            if self.movesDone == Board.BOARD_SIZE_SQ:
+                self.winner = Board.STONE_EMPTY
             return True
         
     def playToTheEnd(self, p1, p2):

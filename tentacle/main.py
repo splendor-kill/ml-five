@@ -22,7 +22,7 @@ class Gui(object):
     STATE_PLAY = 2
     RESULT_MSG = {Board.STONE_BLACK: 'Black Win',
                   Board.STONE_WHITE: 'White Win',
-                  Board.STONE_NOTHING: 'Draw'}
+                  Board.STONE_EMPTY: 'Draw'}
     
     
 
@@ -208,7 +208,7 @@ class Gui(object):
             g.step_to_end()
             if g.winner == Board.STONE_BLACK:
                 probs[0] += 1
-            elif g.winner == Board.STONE_NOTHING:
+            elif g.winner == Board.STONE_EMPTY:
                 probs[1] += 1
             
             # the learner s1 move second(use white)
@@ -218,7 +218,7 @@ class Gui(object):
             g.step_to_end()
             if g.winner == Board.STONE_WHITE:
                 probs[2] += 1
-            elif g.winner == Board.STONE_NOTHING:
+            elif g.winner == Board.STONE_EMPTY:
                 probs[3] += 1
 
             # the learner s1 move first vs. random opponent
@@ -260,7 +260,7 @@ class Gui(object):
         plt.figure(self.fig.number)
 
     def init_both_sides(self):
-        feat = Board.BOARD_SIZE ** 2 * 2 + 2
+        feat = Board.BOARD_SIZE_SQ * 2 + 2
 
 #         if self.strategy_1 is None:
 #             s1 = StrategyTD(feat, feat * 2)
@@ -336,7 +336,7 @@ class Gui(object):
             g.step_to_end()
             win1 += 1 if g.winner == Board.STONE_BLACK else 0
             win2 += 1 if g.winner == Board.STONE_WHITE else 0
-            draw += 1 if g.winner == Board.STONE_NOTHING else 0
+            draw += 1 if g.winner == Board.STONE_EMPTY else 0
             
             stat_win.append(win1 - win2 - draw)
 #             rec.append(win1)
@@ -392,7 +392,7 @@ class Gui(object):
             g.step_to_end()
             win1 += 1 if g.winner == Board.STONE_BLACK else 0
             win2 += 1 if g.winner == Board.STONE_WHITE else 0
-            draw += 1 if g.winner == Board.STONE_NOTHING else 0
+            draw += 1 if g.winner == Board.STONE_EMPTY else 0
 
             step_counter += g.step_counter
             explo_counter += g.exploration_counter

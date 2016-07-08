@@ -13,11 +13,11 @@ class Game(object):
         self.step_counter = 0
         self.exploration_counter = 0
         self.verbose = True
-        self.winner = Board.STONE_NOTHING
+        self.winner = Board.STONE_EMPTY
         self.context = {}
         self.old_board = None
         self.gui = gui
-        self.whose_turn = Board.STONE_NOTHING
+        self.whose_turn = Board.STONE_EMPTY
         self.last_loc = None
         self.wait_human = False
         self.strat1.setup()
@@ -105,8 +105,8 @@ class Game(object):
 #         print('stone stat.')
 #         print(stat)
 
-        if  stat[Board.STONE_NOTHING] == 0:
-            return Board.STONE_NOTHING  # end
+        if  stat[Board.STONE_EMPTY] == 0:
+            return Board.STONE_EMPTY  # end
         if  stat[Board.STONE_BLACK] == stat[Board.STONE_WHITE]:
             return Board.STONE_BLACK  # black first, turn to black
         if  stat[Board.STONE_BLACK] == stat[Board.STONE_WHITE] + 1:
