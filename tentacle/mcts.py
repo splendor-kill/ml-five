@@ -17,13 +17,13 @@ class MonteCarlo(object):
         self.stats = {}
 
         self.calculation_time = float(kwargs.get('time', 1))
-        self.max_moves = int(kwargs.get('max_moves', Board.BOARD_SIZE ** 2))
+        self.max_moves = int(kwargs.get('max_moves', Board.BOARD_SIZE_SQ))
 
         # Exploration constant, increase for more exploratory moves,
         # decrease to prefer moves with known higher win rates.
         self.C = float(kwargs.get('C', 1.4))
 
-        self.features_num = Board.BOARD_SIZE ** 2 * 3 + 2
+        self.features_num = Board.BOARD_SIZE_SQ * 3 + 2
         self.hidden_neurons_num = self.features_num * 2
         self.net = buildNetwork(self.features_num, self.hidden_neurons_num, 2, bias=True, outclass=SigmoidLayer)
         self.trainer = BackpropTrainer(self.net)
@@ -64,7 +64,7 @@ class MonteCarlo(object):
     def sim(self, board):
         visited_path = []
         state = board
-        winner = Board.STONE_NOTHING
+        winner = Board.STONE_EMPTY
         for _ in range(1, self.max_moves + 1):
             moves, player = Game.possible_moves(state)
             state_new, state_new_val = self.get_best(state, moves, player)

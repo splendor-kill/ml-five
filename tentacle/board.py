@@ -16,19 +16,20 @@ class Board(object):
         board state
     '''
 
-    STONE_NOTHING = 0
+    STONE_EMPTY = 0
     STONE_BLACK = 1
     STONE_WHITE = 2
-    BOARD_SIZE = 9
+    BOARD_SIZE = 15
+    BOARD_SIZE_SQ = BOARD_SIZE ** 2
     WIN_STONE_NUM = 5
     WIN_PATTERN = {STONE_BLACK: np.ones(WIN_STONE_NUM, dtype=int) * STONE_BLACK,
                    STONE_WHITE: np.ones(WIN_STONE_NUM, dtype=int) * STONE_WHITE}
 
     def __init__(self):
-        self.stones = np.zeros(Board.BOARD_SIZE ** 2, np.int)
+        self.stones = np.zeros(Board.BOARD_SIZE_SQ, np.int)
 #         self.stones = np.random.rand(N, N)
         self.over = False
-        self.winner = Board.STONE_NOTHING        
+        self.winner = Board.STONE_EMPTY        
         self.exploration = False
 
     @staticmethod
@@ -81,7 +82,7 @@ class Board(object):
         """
             :type pos tuple(x, y)
         """
-        return self.stones[x * Board.BOARD_SIZE + y] == Board.STONE_NOTHING
+        return self.stones[x * Board.BOARD_SIZE + y] == Board.STONE_EMPTY
 
     @staticmethod
     def oppo(who):
@@ -217,7 +218,7 @@ class Board(object):
 
         if np.where(self.stones == 0)[0].size == 0:  # the last step
             self.over = True
-            return True, Board.STONE_NOTHING, loc
+            return True, Board.STONE_EMPTY, loc
 
         return False, None, loc
     

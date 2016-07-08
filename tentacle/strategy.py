@@ -213,7 +213,7 @@ class StrategyTD(StrategyProb):
         if not self.needs_update():
             return
                 
-        if new.winner == Board.STONE_NOTHING:
+        if new.winner == Board.STONE_EMPTY:
             reward = 0
         else:
             reward = 2 if self.stand_for == new.winner else -2
@@ -337,9 +337,9 @@ class StrategyHuman(Strategy):
 
             i, j = map(round, (pts[0, 0], pts[0, 1]))
             loc = i * Board.BOARD_SIZE + j
-            if old.stones[loc] == Board.STONE_NOTHING:
+            if old.stones[loc] == Board.STONE_EMPTY:
                 game.gui.move(i, j)
-                return [b for b in moves if b.stones[loc] != Board.STONE_NOTHING][0]
+                return [b for b in moves if b.stones[loc] != Board.STONE_EMPTY][0]
             else:
                 plt.title('invalid move')
                 continue
@@ -377,7 +377,7 @@ class StrategyHeuristic(Strategy):
                     p = x * Board.BOARD_SIZE + y
                     if old.stones[p] == game.whose_turn:
                         s += 1
-                    if old.stones[p] == Board.STONE_NOTHING:
+                    if old.stones[p] == Board.STONE_EMPTY:
                         space += 1
             box.append((row, col, s, space))
 
@@ -386,7 +386,7 @@ class StrategyHeuristic(Strategy):
         if len(box) != 0:
             loc = box[0]
 #             print('place here(%d,%d), %d pals' % (loc[0], loc[1], loc[2]))
-            return [b for b in moves if b.stones[loc[0] * Board.BOARD_SIZE + loc[1]] != Board.STONE_NOTHING][0]
+            return [b for b in moves if b.stones[loc[0] * Board.BOARD_SIZE + loc[1]] != Board.STONE_EMPTY][0]
         else:
             return random.choice(moves)
 
