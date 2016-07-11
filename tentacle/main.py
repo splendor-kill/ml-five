@@ -14,6 +14,7 @@ from tentacle.strategy import StrategyHuman, StrategyMC
 from tentacle.strategy import StrategyMinMax
 from tentacle.strategy import StrategyTD, StrategyRand
 from tentacle.strategy_ann import StrategyANN
+from tentacle.strategy_dnn import StrategyDNN
 
 
 class Gui(object):
@@ -275,8 +276,9 @@ class Gui(object):
 #             s1.epsilon = 0.3
 
         if self.strategy_1 is None:
-            s1 = StrategyMC()
+#             s1 = StrategyMC()
 #             s1 = StrategyANN(feat, feat * 2)
+            s1 = StrategyDNN()
             self.strategy_1 = s1
         else:
             s1 = self.strategy_1
@@ -315,7 +317,7 @@ class Gui(object):
         win1, win2, draw = 0, 0, 0
         step_counter, explo_counter = 0, 0
         begin = datetime.datetime.now()
-        episodes = 5
+        episodes = 1
         samples = 100
         interval = episodes // samples
         perf = [[] for _ in range(7)]

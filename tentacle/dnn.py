@@ -24,7 +24,7 @@ class Pre(object):
     TRAIN_DIR = '/home/splendor/fusor/brain'
     SUMMARY_DIR = '/home/splendor/fusor/summary'
     STAT_FILE = '/home/splendor/glycogen/stat.npz'
-    DATA_SET_FILE = 'merged_dataset.txt'
+    DATA_SET_FILE = 'merged_dataset11.txt'
 
 
     def __init__(self, is_train=True, is_revive=False):
@@ -80,23 +80,19 @@ class Pre(object):
 #         loss = tf.reduce_mean(-tf.reduce_sum(action * tf.log(prob)), reduction_indices=1)
 
         cross_entropy = tf.nn.softmax_cross_entropy_with_logits(predictions, actions_pl)
-        loss = tf.reduce_mean(cross_entropy)
-        tf.scalar_summary("loss", loss)
+        self.loss = tf.reduce_mean(cross_entropy)
+        tf.scalar_summary("loss", self.loss)
 
-        optimizer = tf.train.GradientDescentOptimizer(Pre.LEARNING_RATE).minimize(loss)
+        self.optimizer = tf.train.GradientDescentOptimizer(Pre.LEARNING_RATE).minimize(self.loss)
 
-#          (100.0 * np.sum(np.argmax(predictions, 1) == np.argmax(labels, 1)) / predictions.shape[0])
-
-        prob = tf.nn.softmax(predictions)
-        Z = tf.equal(tf.argmax(prob, 1), tf.argmax(actions_pl, 1))
-        eval_correct = tf.reduce_sum(tf.cast(Z, tf.int32))
-
-        return optimizer, loss, eval_correct
+        self.predict_best_move = tf.argmax(tf.nn.softmax(predictions), 1)
+        Z = tf.equal(self.predict_best_move, tf.argmax(actions_pl, 1))
+        self.eval_correct = tf.reduce_sum(tf.cast(Z, tf.int32))
 
 
     def prepare(self):
         self.states_pl, self.actions_pl = self.placeholder_inputs()
-        self.optimizer, self.loss, self.eval_correct = self.model(self.states_pl, self.actions_pl)
+        self.model(self.states_pl, self.actions_pl)
 
         self.summary_op = tf.merge_all_summaries()
 
@@ -155,6 +151,14 @@ class Pre(object):
                 stat.append((step, train_accuracy, validation_accuracy, test_accuracy))
 
         np.savez(Pre.STAT_FILE, stat=np.array(stat))
+        
+    def get_best_move(self, state):        
+        feed_dict = {
+            self.states_pl: np.tile(state, (Pre.BATCH_SIZE, 1)).reshape((-1, Board.BOARD_SIZE, Board.BOARD_SIZE, Pre.NUM_CHANNELS)),
+            self.actions_pl: np.zeros((Pre.BATCH_SIZE, Pre.NUM_ACTIONS)),
+        }
+        best_move = self.sess.run(self.predict_best_move, feed_dict=feed_dict)
+        return best_move
 
     def load_dataset(self, filename, board_size):
         content = []
@@ -242,15 +246,7 @@ class Pre(object):
 
         if self.is_train:
             self.adapt(Pre.DATA_SET_FILE)
-
-#             self.valid_dataset = self.ds.validation.next_batch(self.ds.validation.num_examples)
-#             self.test_dataset = self.ds.test.next_batch(self.ds.test.num_examples)
-#             #             print(valid_dataset[0].shape, valid_dataset[1].shape)
-#             self.valid_prediction = tf.nn.softmax(self.predict(tf.constant(self.valid_dataset[0], dtype=tf.float32)))
-#             self.test_prediction = tf.nn.softmax(self.predict(tf.constant(self.test_dataset[0], dtype=tf.float32)))
-
             self.train()
-
 
 
 if __name__ == '__main__':
