@@ -1,52 +1,13 @@
+import collections
 import csv
 
 import numpy as np
 import tensorflow as tf
 from tentacle.board import Board
-import collections
+from tentacle.data_set import DataSet
+
 
 Datasets = collections.namedtuple('Dataset', ['train', 'validation', 'test'])
-
-class DataSet(object):
-    def __init__(self, images, labels):
-        assert images.shape[0] == labels.shape[0], ('images.shape: %s labels.shape: %s' % (images.shape, labels.shape))
-        self._num_examples = images.shape[0]
-        self._images = images
-        self._labels = labels
-        self._epochs_completed = 0
-        self._index_in_epoch = 0
-        self.ds = None
-
-    @property
-    def images(self):
-        return self._images
-
-    @property
-    def labels(self):
-        return self._labels
-
-    @property
-    def num_examples(self):
-        return self._num_examples
-
-    @property
-    def epochs_completed(self):
-        return self._epochs_completed
-
-    def next_batch(self, batch_size):
-        start = self._index_in_epoch
-        self._index_in_epoch += batch_size
-        if self._index_in_epoch > self._num_examples:
-            self._epochs_completed += 1
-            perm = np.arange(self._num_examples)
-            np.random.shuffle(perm)
-            self._images = self._images[perm]
-            self._labels = self._labels[perm]
-            start = 0
-            self._index_in_epoch = batch_size
-            assert batch_size <= self._num_examples
-        end = self._index_in_epoch
-        return self._images[start:end], self._labels[start:end]
 
 class Pre(object):
     NUM_ACTIONS = Board.BOARD_SIZE_SQ
@@ -59,157 +20,141 @@ class Pre(object):
     NUM_HIDDEN = 64
 
     LEARNING_RATE = 0.1
-    NUM_STEPS = 1000
-    TRAIN_DIR = '/home/splendor/glycogen/summary'
+    NUM_STEPS = 10000
+    TRAIN_DIR = '/home/splendor/fusor/brain'
+    SUMMARY_DIR = '/home/splendor/fusor/summary'
+    STAT_FILE = '/home/splendor/glycogen/stat.npz'
+    DATA_SET_FILE = 'merged_dataset.txt'
 
-    def __init__(self):
-        self._index_in_epoch = 0
-        pass
 
-
-    def accuracy(self, predictions, labels):
-        accu = (100.0 * np.sum(np.argmax(predictions, 1) == np.argmax(labels, 1)) / predictions.shape[0])
-        return accu
-
+    def __init__(self, is_train=True, is_revive=False):
+        self.is_train = is_train
+        self.is_revive = is_revive
 
     def placeholder_inputs(self):
         states = tf.placeholder(tf.float32, [Pre.BATCH_SIZE, Board.BOARD_SIZE, Board.BOARD_SIZE, Pre.NUM_CHANNELS])  # NHWC
         actions = tf.placeholder(tf.float32, shape=(Pre.BATCH_SIZE, Pre.NUM_LABELS))
         return states, actions
 
-    def get_conved_size(self, orig, num_layers, stride):
+    def _get_conved_size(self, orig, num_layers, stride):
         s = orig
         while num_layers > 0:
             s = (s + stride - 1) // stride
             num_layers -= 1
         return s
 
+    def model(self, states_pl, actions_pl):
+        # HWC,outC
+        W_1 = tf.Variable(tf.truncated_normal([Pre.PATCH_SIZE, Pre.PATCH_SIZE, Pre.NUM_CHANNELS, Pre.DEPTH], stddev=0.1))
+        b_1 = tf.Variable(tf.zeros([Pre.DEPTH]))
+        W_2 = tf.Variable(tf.truncated_normal([Pre.PATCH_SIZE, Pre.PATCH_SIZE, Pre.DEPTH, Pre.DEPTH], stddev=0.1))
+        b_2 = tf.Variable(tf.constant(1.0, shape=[Pre.DEPTH]))
 
-#     def do_eval(self, sess, eval_correct, images_placeholder, labels_placeholder, data_set):
-#         true_count = 0  # Counts the number of correct predictions.
-#         steps_per_epoch = data_set.num_examples // Pre.BATCH_SIZE
-#         num_examples = steps_per_epoch * Pre.BATCH_SIZE
-#         for step in range(steps_per_epoch):
-#             feed_dict = fill_feed_dict(data_set,
-#                                      images_placeholder,
-#                                      labels_placeholder)
-#           true_count += sess.run(eval_correct, feed_dict=feed_dict)
-#         precision = true_count / num_examples
-#         print('  Num examples: %d  Num correct: %d  Precision @ 1: %0.04f' %
-#               (num_examples, true_count, precision))
+        sz = self._get_conved_size(Board.BOARD_SIZE, 2, 2)
 
+        W_3 = tf.Variable(tf.truncated_normal([sz * sz * Pre.DEPTH, Pre.NUM_HIDDEN], stddev=0.1))
+        b_3 = tf.Variable(tf.constant(1.0, shape=[Pre.NUM_HIDDEN]))
+        W_4 = tf.Variable(tf.truncated_normal([Pre.NUM_HIDDEN, Pre.NUM_LABELS], stddev=0.1))
+        b_4 = tf.Variable(tf.constant(1.0, shape=[Pre.NUM_LABELS]))
 
-    def compute(self, data):
-        h_conv1 = tf.nn.relu(tf.nn.conv2d(data, self.W_1, [1, 2, 2, 1], padding='SAME') + self.b_1)
+#         print('state shape: ', states_pl.get_shape())
+#         print('W_1 shape: ', W_1.get_shape())
+#         print('W_2 shape: ', W_2.get_shape())
+#         print('W_3 shape: ', W_3.get_shape())
+
+        h_conv1 = tf.nn.relu(tf.nn.conv2d(states_pl, W_1, [1, 2, 2, 1], padding='SAME') + b_1)
 #         print('conv1 shape: ', h_conv1.get_shape())
 
-        h_conv2 = tf.nn.relu(tf.nn.conv2d(h_conv1, self.W_2, [1, 2, 2, 1], padding='SAME') + self.b_2)
+        h_conv2 = tf.nn.relu(tf.nn.conv2d(h_conv1, W_2, [1, 2, 2, 1], padding='SAME') + b_2)
         shape = h_conv2.get_shape().as_list()
 #         print('conv2 shape: ', shape)
 
         reshape = tf.reshape(h_conv2, [shape[0], shape[1] * shape[2] * shape[3]])
 #         print('reshaped: ', reshape.get_shape())
 
-        hidden = tf.nn.relu(tf.matmul(reshape, self.W_3) + self.b_3)
+        hidden = tf.nn.relu(tf.matmul(reshape, W_3) + b_3)
 
-        return tf.matmul(hidden, self.W_4) + self.b_4
-
-
-    def model(self, states_ph, actions_ph):
-        # HWC,outC
-        self.W_1 = tf.Variable(tf.truncated_normal([Pre.PATCH_SIZE, Pre.PATCH_SIZE, Pre.NUM_CHANNELS, Pre.DEPTH], stddev=0.1))
-        self.b_1 = tf.Variable(tf.zeros([Pre.DEPTH]))
-        self.W_2 = tf.Variable(tf.truncated_normal([Pre.PATCH_SIZE, Pre.PATCH_SIZE, Pre.DEPTH, Pre.DEPTH], stddev=0.1))
-        self.b_2 = tf.Variable(tf.constant(1.0, shape=[Pre.DEPTH]))
-
-        sz = self.get_conved_size(Board.BOARD_SIZE, 2, 2)
-
-        self.W_3 = tf.Variable(tf.truncated_normal([sz * sz * Pre.DEPTH, Pre.NUM_HIDDEN], stddev=0.1))
-        self.b_3 = tf.Variable(tf.constant(1.0, shape=[Pre.NUM_HIDDEN]))
-        self.W_4 = tf.Variable(tf.truncated_normal([Pre.NUM_HIDDEN, Pre.NUM_LABELS], stddev=0.1))
-        self.b_4 = tf.Variable(tf.constant(1.0, shape=[Pre.NUM_LABELS]))
-
-#         print('state shape: ', states_ph.get_shape())
-#         print('W_1 shape: ', W_1.get_shape())
-#         print('W_2 shape: ', W_2.get_shape())
-#         print('W_3 shape: ', W_3.get_shape())
-
-        logits = self.compute(states_ph)
+        predictions = tf.matmul(hidden, W_4) + b_4
 
 #         prob = tf.nn.softmax(tf.matmul(hidden, W_4) + b_4)
 #         loss = tf.reduce_mean(-tf.reduce_sum(action * tf.log(prob)), reduction_indices=1)
-        loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(logits, actions_ph))
-        optimizer = tf.train.GradientDescentOptimizer(Pre.LEARNING_RATE).minimize(loss)
 
-        train_prediction = tf.nn.softmax(logits)
-
+        cross_entropy = tf.nn.softmax_cross_entropy_with_logits(predictions, actions_pl)
+        loss = tf.reduce_mean(cross_entropy)
         tf.scalar_summary("loss", loss)
 
-        return optimizer, loss, train_prediction
+        optimizer = tf.train.GradientDescentOptimizer(Pre.LEARNING_RATE).minimize(loss)
 
+#          (100.0 * np.sum(np.argmax(predictions, 1) == np.argmax(labels, 1)) / predictions.shape[0])
+
+        prob = tf.nn.softmax(predictions)
+        Z = tf.equal(tf.argmax(prob, 1), tf.argmax(actions_pl, 1))
+        eval_correct = tf.reduce_sum(tf.cast(Z, tf.int32))
+
+        return optimizer, loss, eval_correct
+
+
+    def prepare(self):
+        self.states_pl, self.actions_pl = self.placeholder_inputs()
+        self.optimizer, self.loss, self.eval_correct = self.model(self.states_pl, self.actions_pl)
+
+        self.summary_op = tf.merge_all_summaries()
+
+        self.saver = tf.train.Saver()
+
+        init = tf.initialize_all_variables()
+        self.sess = tf.Session()
+        self.summary_writer = tf.train.SummaryWriter(Pre.SUMMARY_DIR, self.sess.graph)
+
+        self.sess.run(init)
+        print('Initialized')
+
+    def load_from_vat(self):
+        ckpt = tf.train.get_checkpoint_state(Pre.TRAIN_DIR)
+        if ckpt and ckpt.model_checkpoint_path:
+            self.saver.restore(self.sess, ckpt.model_checkpoint_path)
+
+    def fill_feed_dict(self, data_set, states_pl, actions_pl):
+        states_feed, actions_feed = data_set.next_batch(Pre.BATCH_SIZE)
+        feed_dict = {
+            states_pl: states_feed,
+            actions_pl: actions_feed,
+        }
+        return feed_dict
+
+    def do_eval(self, eval_correct, states_pl, actions_pl, data_set):
+        true_count = 0  # Counts the number of correct predictions.
+        steps_per_epoch = data_set.num_examples // Pre.BATCH_SIZE
+        num_examples = steps_per_epoch * Pre.BATCH_SIZE
+        for _ in range(steps_per_epoch):
+            feed_dict = self.fill_feed_dict(data_set, states_pl, actions_pl)
+            true_count += self.sess.run(eval_correct, feed_dict=feed_dict)
+        precision = true_count / num_examples
+#         print('  Num examples: %d,  Num correct: %d,  Precision: %0.04f' % (num_examples, true_count, precision))
+        return precision
 
     def train(self):
-        with tf.Session() as sess:
-            states_ph, actions_ph = self.placeholder_inputs()
-            optimizer, loss, train_prediction = self.model(states_ph, actions_ph)
+        stat = []
+        for step in range(Pre.NUM_STEPS):
+            feed_dict = self.fill_feed_dict(self.ds.train, self.states_pl, self.actions_pl)
 
-            valid_dataset = self.ds.validation.next_batch(self.ds.validation.num_examples)
-            test_dataset = self.ds.test.next_batch(self.ds.test.num_examples)
-#             print(valid_dataset[0].shape, valid_dataset[1].shape)
-            valid_prediction = tf.nn.softmax(self.compute(tf.constant(valid_dataset[0], dtype=tf.float32)))
-            test_prediction = tf.nn.softmax(self.compute(tf.constant(test_dataset[0], dtype=tf.float32)))
+            self.sess.run([self.optimizer, self.loss, self.eval_correct], feed_dict=feed_dict)
 
-            summary_op = tf.merge_all_summaries()
-            saver = tf.train.Saver()
-            summary_writer = tf.train.SummaryWriter(Pre.TRAIN_DIR, sess.graph)
+            if (step % 100 == 0):
+                summary_str = self.sess.run(self.summary_op, feed_dict=feed_dict)
+                self.summary_writer.add_summary(summary_str, step)
+                self.summary_writer.flush()
 
-            tf.initialize_all_variables().run()
-            print('Initialized')
+            if (step + 1) % 1000 == 0 or (step + 1) == Pre.NUM_STEPS:
+                self.saver.save(self.sess, Pre.TRAIN_DIR, global_step=step)
 
-            num_steps = self.ds.train.num_examples // Pre.BATCH_SIZE
-            print('num_steps: ', num_steps)
-#             num_steps *= 3
+                train_accuracy = self.do_eval(self.eval_correct, self.states_pl, self.actions_pl, self.ds.train)
+                validation_accuracy = self.do_eval(self.eval_correct, self.states_pl, self.actions_pl, self.ds.validation)
+                test_accuracy = self.do_eval(self.eval_correct, self.states_pl, self.actions_pl, self.ds.test)
 
-            for step in range(num_steps):
-#                 minibatch = random.sameple(replayMemory, BATCH_SIZE)
-#                 state_batch = [data[0] for data in minibatch]
-#                 action_batch = [data[1] for data in minibatch]
-#                 tf.train.run(feed_dict)
-                state_batch, action_batch = self.get_dat()
-#                 print(state_batch.shape, action_batch.shape)
+                stat.append((step, train_accuracy, validation_accuracy, test_accuracy))
 
-                feed_dict = {states_ph: state_batch, actions_ph: action_batch}
-
-                _, l, predictions = sess.run([optimizer, loss, train_prediction], feed_dict=feed_dict)
-
-                if (step % 50 == 0):
-                    minibatch_accuracy = self.accuracy(predictions, action_batch)
-                    validation_accuracy = self.accuracy(valid_prediction.eval(), valid_dataset[1])
-                    test_accuracy = self.accuracy(test_prediction.eval(), test_dataset[1])
-#                     print('Minibatch loss at step %d: %f' % (step, l))
-#                     print('Minibatch accuracy: %.1f%%' % minibatch_accuracy)
-#                     print('Validation accuracy: %.1f%%' % validation_accuracy)
-#                     print('Test accuracy: %.1f%%' % test_accuracy)
-                    tf.scalar_summary("minibatch accuracy", minibatch_accuracy)
-                    tf.scalar_summary("validation accuracy", validation_accuracy)
-                    tf.scalar_summary("test accuracy", test_accuracy)
-                    saver.save(sess, Pre.TRAIN_DIR, global_step=step)
-                    summary_str = sess.run(summary_op, feed_dict=feed_dict)
-                    summary_writer.add_summary(summary_str, step)
-                    summary_writer.flush()
-
-    def loss(self):
-        pass
-
-    def predict(self):
-        pass
-
-    def get_dat(self):
-        batch = self.ds.train.next_batch(Pre.BATCH_SIZE)
-        states = batch[0]
-        actions = batch[1]
-#         print(states.shape, actions.shape)
-        return states, actions
+        np.savez(Pre.STAT_FILE, stat=np.array(stat))
 
     def load_dataset(self, filename, board_size):
         content = []
@@ -221,7 +166,14 @@ class Pre(object):
 
         print('load data:', content.shape)
 #         print(content[:10, -5:])
-        return content
+
+        # unique board position
+        a = content[:, :-4]
+        b = np.ascontiguousarray(a).view(np.dtype((np.void, a.dtype.itemsize * a.shape[1])))
+        _, idx = np.unique(b, return_index=True)
+        unique_a = content[idx]
+        print('unique:', unique_a.shape)
+        return unique_a
 
     def forge(self, row):
         '''
@@ -268,13 +220,6 @@ class Pre(object):
 
 #         print(ds.shape, train.shape, validation.shape, test.shape)
 
-#         a = np.vstack(train[:, 0])
-#         print('train set: ', a.shape)        
-#         b = np.ascontiguousarray(a).view(np.dtype((np.void, a.dtype.itemsize * a.shape[1])))
-#         _, idx = np.unique(b, return_index=True)
-#         unique_a = a[idx]
-#         print('unique: ', unique_a.shape)
-
         train = DataSet(np.vstack(train[:, 0]).reshape((-1, Board.BOARD_SIZE, Board.BOARD_SIZE, Pre.NUM_CHANNELS)), np.vstack(train[:, 1]))
         validation = DataSet(np.vstack(validation[:, 0]).reshape((-1, Board.BOARD_SIZE, Board.BOARD_SIZE, Pre.NUM_CHANNELS)), np.vstack(validation[:, 1]))
         test = DataSet(np.vstack(test[:, 0]).reshape((-1, Board.BOARD_SIZE, Board.BOARD_SIZE, Pre.NUM_CHANNELS)), np.vstack(test[:, 1]))
@@ -283,18 +228,39 @@ class Pre(object):
         print(validation.images.shape, validation.labels.shape)
         print(test.images.shape, test.labels.shape)
 
-        return Datasets(train=train, validation=validation, test=test)
+        self.ds = Datasets(train=train, validation=validation, test=test)
+
+    def close(self):
+        if self.sess is not None:
+            self.sess.close()
+
+    def run(self):
+        self.prepare()
+
+        if self.is_revive:
+            self.load_from_vat()
+
+        if self.is_train:
+            self.adapt(Pre.DATA_SET_FILE)
+
+#             self.valid_dataset = self.ds.validation.next_batch(self.ds.validation.num_examples)
+#             self.test_dataset = self.ds.test.next_batch(self.ds.test.num_examples)
+#             #             print(valid_dataset[0].shape, valid_dataset[1].shape)
+#             self.valid_prediction = tf.nn.softmax(self.predict(tf.constant(self.valid_dataset[0], dtype=tf.float32)))
+#             self.test_prediction = tf.nn.softmax(self.predict(tf.constant(self.test_dataset[0], dtype=tf.float32)))
+
+            self.train()
+
 
 
 if __name__ == '__main__':
     pre = Pre()
-#     print(pre.get_conved_size(15, 2, 2))
 #     dat = pre.load_dataset('dataset_2016-07-05_17-59-03.txt', 15)
 #     pre.forge(dat[0])
 
 #     pre.ds = pre.adapt('dataset_2016-07-06_17-52-16.txt')
-    pre.ds = pre.adapt('dataset_2016-07-05_17-59-03.txt')
-    pre.train()
+    pre.run()
+
 
 
 
