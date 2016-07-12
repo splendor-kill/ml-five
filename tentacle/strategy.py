@@ -61,6 +61,9 @@ class Strategy(object):
             the estimate value
         '''
         pass
+    
+    def close(self):
+        pass
 
     def save(self, file):
         pass
@@ -336,7 +339,7 @@ class StrategyHuman(Strategy):
                 continue
 
             i, j = map(round, (pts[0, 0], pts[0, 1]))
-            loc = i * Board.BOARD_SIZE + j
+            loc = int(i * Board.BOARD_SIZE + j)
             if old.stones[loc] == Board.STONE_EMPTY:
                 game.gui.move(i, j)
                 return [b for b in moves if b.stones[loc] != Board.STONE_EMPTY][0]

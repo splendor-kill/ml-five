@@ -21,10 +21,10 @@ class Pre(object):
 
     LEARNING_RATE = 0.1
     NUM_STEPS = 10000
-    TRAIN_DIR = '/home/splendor/fusor/brain'
+    TRAIN_DIR = '/home/splendor/fusor/brain/'
     SUMMARY_DIR = '/home/splendor/fusor/summary'
     STAT_FILE = '/home/splendor/glycogen/stat.npz'
-    DATA_SET_FILE = 'merged_dataset11.txt'
+    DATA_SET_FILE = 'dataset_merged.txt'
 
 
     def __init__(self, is_train=True, is_revive=False):
@@ -142,8 +142,7 @@ class Pre(object):
                 self.summary_writer.flush()
 
             if (step + 1) % 1000 == 0 or (step + 1) == Pre.NUM_STEPS:
-                self.saver.save(self.sess, Pre.TRAIN_DIR, global_step=step)
-
+                self.saver.save(self.sess, Pre.TRAIN_DIR + 'model.ckpt', global_step=step)
                 train_accuracy = self.do_eval(self.eval_correct, self.states_pl, self.actions_pl, self.ds.train)
                 validation_accuracy = self.do_eval(self.eval_correct, self.states_pl, self.actions_pl, self.ds.validation)
                 test_accuracy = self.do_eval(self.eval_correct, self.states_pl, self.actions_pl, self.ds.test)
@@ -151,14 +150,14 @@ class Pre(object):
                 stat.append((step, train_accuracy, validation_accuracy, test_accuracy))
 
         np.savez(Pre.STAT_FILE, stat=np.array(stat))
-        
-    def get_best_move(self, state):        
+
+    def get_best_move(self, state):
         feed_dict = {
             self.states_pl: np.tile(state, (Pre.BATCH_SIZE, 1)).reshape((-1, Board.BOARD_SIZE, Board.BOARD_SIZE, Pre.NUM_CHANNELS)),
             self.actions_pl: np.zeros((Pre.BATCH_SIZE, Pre.NUM_ACTIONS)),
         }
         best_move = self.sess.run(self.predict_best_move, feed_dict=feed_dict)
-        return best_move
+        return np.asscalar(best_move[0])
 
     def load_dataset(self, filename, board_size):
         content = []
@@ -251,14 +250,5 @@ class Pre(object):
 
 if __name__ == '__main__':
     pre = Pre()
-#     dat = pre.load_dataset('dataset_2016-07-05_17-59-03.txt', 15)
-#     pre.forge(dat[0])
-
-#     pre.ds = pre.adapt('dataset_2016-07-06_17-52-16.txt')
     pre.run()
-
-
-
-
-
 

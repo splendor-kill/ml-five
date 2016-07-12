@@ -24,13 +24,13 @@ class Gui(object):
     RESULT_MSG = {Board.STONE_BLACK: 'Black Win',
                   Board.STONE_WHITE: 'White Win',
                   Board.STONE_EMPTY: 'Draw'}
-    
-    
+
+
 
     def __init__(self, board):
         self.board = board
         size = Board.BOARD_SIZE
-        
+
         keymap = [k for k in plt.rcParams.keys() if k.startswith('keymap.')]
         for k in keymap:
             plt.rcParams[k] = ''
@@ -57,6 +57,7 @@ class Gui(object):
         self.white_stone.set_edgecolor((.5, .5, .5))
 
         self.fig.canvas.mpl_connect('key_press_event', self._key_press)
+        self.fig.canvas.mpl_connect('close_event', self._handle_close)
 #         self.fig.canvas.mpl_connect('button_press_event', self._button_press)
 
         self.state = Gui.STATE_IDLE
@@ -65,6 +66,11 @@ class Gui(object):
         self.game = None
         self.all_stones = []
 
+    def _handle_close(self, event):
+        if self.strategy_1 is not None:
+            self.strategy_1.close()
+        if self.strategy_2 is not None:
+            self.strategy_2.close()
 
     def _key_press(self, event):
 #         print('press', event.key)
@@ -139,14 +145,14 @@ class Gui(object):
         return None
 
 
-    def vs_human(self, which_side_human_play):        
+    def vs_human(self, which_side_human_play):
 #         s1 = StrategyMinMax()
 #         s1.stand_for = Board.STONE_BLACK
-#         self.strategy_1 = s1        
+#         self.strategy_1 = s1
 #         s2 = StrategyMinMax()
 #         s2.stand_for = Board.STONE_WHITE
 #         self.strategy_2 = s2
-        
+
         strategy = self.which_one(Board.oppo(which_side_human_play))
         if strategy is None:
             print('play with a brainy opponent')
@@ -198,7 +204,7 @@ class Gui(object):
         s2.is_learning, s2.stand_for = False, Board.STONE_WHITE
 
         s3 = StrategyRand()
-        
+
         probs = [0, 0, 0, 0, 0, 0]
         games = 10  # 30
         for i in range(games):
@@ -211,7 +217,7 @@ class Gui(object):
                 probs[0] += 1
             elif g.winner == Board.STONE_EMPTY:
                 probs[1] += 1
-            
+
             # the learner s1 move second(use white)
             s1.stand_for = Board.STONE_WHITE
             s2.stand_for = Board.STONE_BLACK
@@ -229,7 +235,7 @@ class Gui(object):
             g.step_to_end()
             if g.winner == Board.STONE_BLACK:
                 probs[4] += 1
-            
+
             # the learner s1 move second vs. random opponent
             s1.stand_for = Board.STONE_WHITE
             s3.stand_for = Board.STONE_BLACK
@@ -283,7 +289,7 @@ class Gui(object):
         else:
             s1 = self.strategy_1
 
-            
+
         s1.is_learning = True
         s1.stand_for = Board.STONE_BLACK
 
@@ -296,13 +302,13 @@ class Gui(object):
 #             s2 = self.strategy_2
 #             s2.is_learning = False
         s2 = StrategyRand()
-        
+
 #         s2 = StrategyMinMax()
         s2.stand_for = Board.STONE_WHITE
         self.strategy_2 = s2
-        
+
         return s1, s2
-    
+
 
     def train1(self, s1, s2):
         '''train one time
@@ -311,7 +317,7 @@ class Gui(object):
         winner : Strategy
             the win strategy
         '''
-    
+
         max_explore_rate = 0.95
 
         win1, win2, draw = 0, 0, 0
@@ -332,14 +338,14 @@ class Gui(object):
 #                 perf[0].append(i)
 #                 for idx, x in enumerate(probs):
 #                     perf[idx + 1].append(x)
-                    
-            learner.epsilon = max_explore_rate * np.exp(-5 * i / episodes) #* (1 if i < episodes//2 else 0.3) #
+
+            learner.epsilon = max_explore_rate * np.exp(-5 * i / episodes)  # * (1 if i < episodes//2 else 0.3) #
             g = Game(Board(), s1, s2)
             g.step_to_end()
             win1 += 1 if g.winner == Board.STONE_BLACK else 0
             win2 += 1 if g.winner == Board.STONE_WHITE else 0
             draw += 1 if g.winner == Board.STONE_EMPTY else 0
-            
+
             stat_win.append(win1 - win2 - draw)
 #             rec.append(win1)
             step_counter += g.step_counter
@@ -353,7 +359,7 @@ class Gui(object):
         print("draw: %f" % (draw / total))
 
         print('avg. steps[%f], avg. explos[%f]' % (step_counter / episodes, explo_counter / episodes))
-        
+
         end = datetime.datetime.now()
         diff = end - begin
         print("time cost[%f]s, avg.[%f]s" % (diff.total_seconds(), diff.total_seconds() / episodes))
@@ -362,11 +368,11 @@ class Gui(object):
             f.write(repr(stat_win))
 #         print(perf)
 #         self.draw_perf(perf)
-        
+
 #         np.set_printoptions(threshold=np.nan, formatter={'float_kind' : lambda x: "%.4f" % x})
 #         with open('stat-result-net-train-errors.txt', 'w') as f:
 #             f.write(repr(np.array(s1.errors)))
-        
+
         winner = Board.STONE_BLACK if win1 >= win2 else Board.STONE_WHITE
         return self.which_one(winner), max(win1, win2) / total
         # plt.title('press F3 start')
@@ -410,7 +416,7 @@ class Gui(object):
         end = datetime.datetime.now()
         diff = end - begin
         print("time cost[%f]s, avg.[%f]s" % (diff.total_seconds(), diff.total_seconds() / episodes))
-        
+
         observer.save('./brain1.npz')
 
 
@@ -427,48 +433,51 @@ class Gui(object):
             s2 = s1.mind_clone()
         if s2 == winner:
             s1 = s2.mind_clone()
-            
+
         # way 1: s1 follow the winner's stand-for
-            s1.stand_for = winner.stand_for            
+            s1.stand_for = winner.stand_for
         # way 2: s1 switch to another stand-for of winner
 #             s1.stand_for = Board.oppo(winner.stand_for)
         # way 3: s1 random select stand-for
 #             s1.stand_for = np.random.choice(np.array([Board.STONE_BLACK, Board.STONE_WHITE]))
         s2.stand_for = Board.oppo(s1.stand_for)
-        
+
         s1.is_learning = True
         s2.is_learning = False
         return s1, s2
-    
-    
+
+
     def train2(self):
         '''train many times
         
         '''
         s1, s2 = self.init_both_sides()
-        
-        
+
+
         win_probs = []
         begin = datetime.datetime.now()
         counter = 0
         while True:
             print('epoch...%d' % counter)
-            
+
             winner, win_prob = self.train1(s1, s2)
             win_probs.append(win_prob)
-            
+
             counter += 1
             if counter >= 10:
                 break
-            s1, s2 = self.from_new_start_point(winner, s1, s2)            
-        
+            s1, s2 = self.from_new_start_point(winner, s1, s2)
+
         end = datetime.datetime.now()
         diff = end - begin
         print("total time cost[%f] hour" % (diff.total_seconds() / 3600))
-        
+
         print('win probs: ', win_probs)
-        
-        plt.title('press F3 start')   
+
+        plt.title('press F3 start')
+
+
+
 
 if __name__ == '__main__':
     board = Board()
