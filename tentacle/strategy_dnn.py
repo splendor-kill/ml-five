@@ -32,16 +32,18 @@ class StrategyDNN(Strategy):
 
         state = self.get_input_values(v)
         best_move = self.brain.get_best_move(state)
+        loc = divmod(best_move, Board.BOARD_SIZE)
+        print('predict move here: %s' % (loc,))
         try:
             if v[best_move] == Board.STONE_EMPTY:
-                print(divmod(best_move, Board.BOARD_SIZE))
                 for m in moves:
-                    if moves[best_move] != Board.STONE_EMPTY:
+                    if m.stones[best_move] != Board.STONE_EMPTY:
                         return m
                 raise Exception('impossible')
             else:
-                raise Exception('invalid prediction')
-        except Exception:
+                raise Exception('invalid prediction, %s was occupied' % (loc,))
+        except Exception as e:
+            print(e)
             return random.choice(moves)
 
     def get_input_values(self, board):
@@ -61,3 +63,6 @@ class StrategyDNN(Strategy):
 
     def mind_clone(self):
         pass
+
+    def close(self):
+        self.brain.close()
