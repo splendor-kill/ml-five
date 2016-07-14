@@ -30,10 +30,15 @@ class StrategyDNN(Strategy):
 
         v = old.stones
 
-        state = self.get_input_values(v)
-        best_move = self.brain.get_best_move(state)
-        loc = divmod(best_move, Board.BOARD_SIZE)
-        print('predict move here: %s' % (loc,))
+        state, legal = self.get_input_values(v)
+        probs = self.brain.get_move_probs(state)
+
+        legal = np.logical_not(legal).reshape(1, -1)
+        legal_prob = np.ma.masked_where(legal, probs)
+        best_move = np.argmax(legal_prob, axis=1)
+
+        loc = divmod(best_move[0], Board.BOARD_SIZE)
+#         print('predict move here: %s' % (loc,))
         try:
             if v[best_move] == Board.STONE_EMPTY:
                 for m in moves:
@@ -49,8 +54,9 @@ class StrategyDNN(Strategy):
     def get_input_values(self, board):
         black = (board == Board.STONE_BLACK).astype(float)
         white = (board == Board.STONE_WHITE).astype(float)
-        valid = (board == Board.STONE_EMPTY).astype(float)
-        return np.dstack((black, white, valid)).flatten()
+        empty = (board == Board.STONE_EMPTY).astype(float)
+        legal = empty.astype(bool)
+        return np.dstack((black, white, empty)).ravel(), legal
 
     def save(self, file):
         pass
