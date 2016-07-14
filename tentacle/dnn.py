@@ -20,7 +20,7 @@ class Pre(object):
     NUM_HIDDEN = 64
 
     LEARNING_RATE = 0.1
-    NUM_STEPS = 10000
+    NUM_STEPS = 25000
     TRAIN_DIR = '/home/splendor/fusor/brain/'
     SUMMARY_DIR = '/home/splendor/fusor/summary'
     STAT_FILE = '/home/splendor/glycogen/stat.npz'
@@ -32,8 +32,8 @@ class Pre(object):
         self.is_revive = is_revive
 
     def placeholder_inputs(self):
-        states = tf.placeholder(tf.float32, [Pre.BATCH_SIZE, Board.BOARD_SIZE, Board.BOARD_SIZE, Pre.NUM_CHANNELS])  # NHWC
-        actions = tf.placeholder(tf.float32, shape=(Pre.BATCH_SIZE, Pre.NUM_LABELS))
+        states = tf.placeholder(tf.float32, [None, Board.BOARD_SIZE, Board.BOARD_SIZE, Pre.NUM_CHANNELS])  # NHWC
+        actions = tf.placeholder(tf.float32, shape=(None, Pre.NUM_LABELS))
         return states, actions
 
     def _get_conved_size(self, orig, num_layers, stride):
@@ -69,7 +69,7 @@ class Pre(object):
         shape = h_conv2.get_shape().as_list()
 #         print('conv2 shape: ', shape)
 
-        reshape = tf.reshape(h_conv2, [shape[0], shape[1] * shape[2] * shape[3]])
+        reshape = tf.reshape(h_conv2, [-1, shape[1] * shape[2] * shape[3]])
 #         print('reshaped: ', reshape.get_shape())
 
         hidden = tf.nn.relu(tf.matmul(reshape, W_3) + b_3)
@@ -85,8 +85,8 @@ class Pre(object):
 
         self.optimizer = tf.train.GradientDescentOptimizer(Pre.LEARNING_RATE).minimize(self.loss)
 
-        self.predict_best_move = tf.argmax(tf.nn.softmax(predictions), 1)
-        Z = tf.equal(self.predict_best_move, tf.argmax(actions_pl, 1))
+        self.predict_probs = tf.nn.softmax(predictions)
+        Z = tf.equal(tf.argmax(self.predict_probs, 1), tf.argmax(actions_pl, 1))
         self.eval_correct = tf.reduce_sum(tf.cast(Z, tf.int32))
 
 
@@ -151,13 +151,12 @@ class Pre(object):
 
         np.savez(Pre.STAT_FILE, stat=np.array(stat))
 
-    def get_best_move(self, state):
+    def get_move_probs(self, state):
         feed_dict = {
-            self.states_pl: np.tile(state, (Pre.BATCH_SIZE, 1)).reshape((-1, Board.BOARD_SIZE, Board.BOARD_SIZE, Pre.NUM_CHANNELS)),
-            self.actions_pl: np.zeros((Pre.BATCH_SIZE, Pre.NUM_ACTIONS)),
+            self.states_pl: state.reshape(1, -1).reshape((-1, Board.BOARD_SIZE, Board.BOARD_SIZE, Pre.NUM_CHANNELS)),
+            self.actions_pl: np.zeros((1, Pre.NUM_ACTIONS))
         }
-        best_move = self.sess.run(self.predict_best_move, feed_dict=feed_dict)
-        return np.asscalar(best_move[0])
+        return self.sess.run(self.predict_probs, feed_dict=feed_dict)
 
     def load_dataset(self, filename, board_size):
         content = []
