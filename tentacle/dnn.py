@@ -1,5 +1,9 @@
 import collections
 import csv
+import gc
+import os
+
+import psutil
 
 import numpy as np
 import tensorflow as tf
@@ -9,27 +13,50 @@ from tentacle.data_set import DataSet
 
 Datasets = collections.namedtuple('Dataset', ['train', 'validation', 'test'])
 
+class RingBuffer():
+    "A 1D ring buffer using numpy arrays"
+    def __init__(self, length):
+        self.data = np.zeros(length, dtype='f')
+        self.index = 0
+
+    def extend(self, x):
+        "adds array x to ring buffer"
+        x_index = (self.index + np.arange(x.size)) % self.data.size
+        self.data[x_index] = x
+        self.index = x_index[-1] + 1
+
+    def get_average(self):
+        return np.average(self.data)
+
+
 class Pre(object):
     NUM_ACTIONS = Board.BOARD_SIZE_SQ
     NUM_LABELS = NUM_ACTIONS
     NUM_CHANNELS = 3
 
-    BATCH_SIZE = 10
+    BATCH_SIZE = 30
     PATCH_SIZE = 5
     DEPTH = 16
     NUM_HIDDEN = 64
 
-    LEARNING_RATE = 0.1
-    NUM_STEPS = 25000
+    LEARNING_RATE = 0.005
+    NUM_STEPS = 30000
+    DATASET_CAPACITY = 600000
+
     TRAIN_DIR = '/home/splendor/fusor/brain/'
     SUMMARY_DIR = '/home/splendor/fusor/summary'
     STAT_FILE = '/home/splendor/glycogen/stat.npz'
-    DATA_SET_FILE = 'dataset_merged.txt'
+    DATA_SET_FILE = 'dataset_9x9_dilated.txt'
 
 
     def __init__(self, is_train=True, is_revive=False):
         self.is_train = is_train
         self.is_revive = is_revive
+        self._file_read_index = 0
+        self._has_more_data = True
+        self.ds = None
+        self.gstep = 0
+        self.loss_window = RingBuffer(10)
 
     def placeholder_inputs(self):
         states = tf.placeholder(tf.float32, [None, Board.BOARD_SIZE, Board.BOARD_SIZE, Pre.NUM_CHANNELS])  # NHWC
@@ -129,28 +156,6 @@ class Pre(object):
 #         print('  Num examples: %d,  Num correct: %d,  Precision: %0.04f' % (num_examples, true_count, precision))
         return precision
 
-    def train(self):
-        stat = []
-        for step in range(Pre.NUM_STEPS):
-            feed_dict = self.fill_feed_dict(self.ds.train, self.states_pl, self.actions_pl)
-
-            self.sess.run([self.optimizer, self.loss, self.eval_correct], feed_dict=feed_dict)
-
-            if (step % 100 == 0):
-                summary_str = self.sess.run(self.summary_op, feed_dict=feed_dict)
-                self.summary_writer.add_summary(summary_str, step)
-                self.summary_writer.flush()
-
-            if (step + 1) % 1000 == 0 or (step + 1) == Pre.NUM_STEPS:
-                self.saver.save(self.sess, Pre.TRAIN_DIR + 'model.ckpt', global_step=step)
-                train_accuracy = self.do_eval(self.eval_correct, self.states_pl, self.actions_pl, self.ds.train)
-                validation_accuracy = self.do_eval(self.eval_correct, self.states_pl, self.actions_pl, self.ds.validation)
-                test_accuracy = self.do_eval(self.eval_correct, self.states_pl, self.actions_pl, self.ds.test)
-
-                stat.append((step, train_accuracy, validation_accuracy, test_accuracy))
-
-        np.savez(Pre.STAT_FILE, stat=np.array(stat))
-
     def get_move_probs(self, state):
         feed_dict = {
             self.states_pl: state.reshape(1, -1).reshape((-1, Board.BOARD_SIZE, Board.BOARD_SIZE, Pre.NUM_CHANNELS)),
@@ -158,54 +163,42 @@ class Pre(object):
         }
         return self.sess.run(self.predict_probs, feed_dict=feed_dict)
 
-    def load_dataset(self, filename, board_size):
-        content = []
-        with open(filename) as csvfile:
-            reader = csv.reader(csvfile)
-            for line in reader:
-                content.append([float(i) for i in line])
-        content = np.array(content)
 
-        print('load data:', content.shape)
-#         print(content[:10, -5:])
+    def train(self):
+        stat = []
+        for step in range(Pre.NUM_STEPS):
+            feed_dict = self.fill_feed_dict(self.ds.train, self.states_pl, self.actions_pl)
+            _, loss, _ = self.sess.run([self.optimizer, self.loss, self.eval_correct], feed_dict=feed_dict)
+            self.loss_window.extend(loss)
 
-        # unique board position
-        a = content[:, :-4]
-        b = np.ascontiguousarray(a).view(np.dtype((np.void, a.dtype.itemsize * a.shape[1])))
-        _, idx = np.unique(b, return_index=True)
-        unique_a = content[idx]
-        print('unique:', unique_a.shape)
-        return unique_a
+            self.gstep += 1
+            step += 1
 
-    def forge(self, row):
-        '''
-            channel 1: black
-            channel 2: white
-            channel 3: valid move
-            lable: best move
-        '''
-        board = row[:Board.BOARD_SIZE_SQ]
-        black = (board == Board.STONE_BLACK).astype(float)
-        white = (board == Board.STONE_WHITE).astype(float)
-        valid = (board == Board.STONE_EMPTY).astype(float)
-        image = np.dstack((black, white, valid)).flatten()
-#         print(black.shape)
-#         print(black)
-        move = tuple(row[-4:-2].astype(int))
-        one_hot = np.zeros((Board.BOARD_SIZE, Board.BOARD_SIZE))
-        one_hot[move] = 1.
-        one_hot = one_hot.flatten()
+            if (step % 100 == 0):
+                summary_str = self.sess.run(self.summary_op, feed_dict=feed_dict)
+                self.summary_writer.add_summary(summary_str, self.gstep)
+                self.summary_writer.flush()
 
-#         print(one_hot)
-#         print(image.shape, one_hot.shape)
-        return image, one_hot
+            if (step + 1) % 1000 == 0 or (step + 1) == Pre.NUM_STEPS:
+                self.saver.save(self.sess, Pre.TRAIN_DIR + 'model.ckpt', global_step=self.gstep)
+                train_accuracy = self.do_eval(self.eval_correct, self.states_pl, self.actions_pl, self.ds.train)
+                validation_accuracy = self.do_eval(self.eval_correct, self.states_pl, self.actions_pl, self.ds.validation)
+                stat.append((self.gstep, train_accuracy, validation_accuracy, 0.))
+#                 print('step: ', self.gstep)
+
+        test_accuracy = self.do_eval(self.eval_correct, self.states_pl, self.actions_pl, self.ds.test)
+        print('test accuracy:', test_accuracy)
+
+        np.savez(Pre.STAT_FILE, stat=np.array(stat))
+
 
     def adapt(self, filename):
         ds = []
-        dat = pre.load_dataset(filename, 15)
+        dat = pre.load_dataset(filename)
         for row in dat:
             s, a = self.forge(row)
             ds.append((s, a))
+
         ds = np.array(ds)
         print(ds[0, 0].shape, ds[0, 1].shape)
 
@@ -232,6 +225,71 @@ class Pre(object):
 
         self.ds = Datasets(train=train, validation=validation, test=test)
 
+
+    def load_dataset(self, filename):
+        proc = psutil.Process(os.getpid())
+        gc.collect()
+        mem0 = proc.memory_info().rss
+
+        del self.ds
+        gc.collect()
+
+        mem1 = proc.memory_info().rss
+        print('gc(M): ', (mem1 - mem0) / 1024 ** 2)
+
+        content = []
+        with open(filename) as csvfile:
+            reader = csv.reader(csvfile)
+            for index, line in enumerate(reader):
+                if index >= self._file_read_index:
+                    if index < self._file_read_index + Pre.DATASET_CAPACITY:
+                        content.append([float(i) for i in line])
+                    else:
+                        break
+            if index == self._file_read_index + Pre.DATASET_CAPACITY:
+                self._has_more_data = True
+                self._file_read_index += Pre.DATASET_CAPACITY
+            else:
+                self._has_more_data = False
+
+        content = np.array(content)
+
+        print('load data:', content.shape)
+#         print(content[:10, -5:])
+
+        # unique board position
+        a = content[:, :-4]
+        b = np.ascontiguousarray(a).view(np.dtype((np.void, a.dtype.itemsize * a.shape[1])))
+        _, idx = np.unique(b, return_index=True)
+        unique_a = content[idx]
+        print('unique:', unique_a.shape)
+        return unique_a
+
+
+    def forge(self, row):
+        '''
+            channel 1: black
+            channel 2: white
+            channel 3: valid move
+            lable: best move
+        '''
+        board = row[:Board.BOARD_SIZE_SQ]
+        black = (board == Board.STONE_BLACK).astype(float)
+        white = (board == Board.STONE_WHITE).astype(float)
+        valid = (board == Board.STONE_EMPTY).astype(float)
+        image = np.dstack((black, white, valid)).flatten()
+#         print(black.shape)
+#         print(black)
+        move = tuple(row[-4:-2].astype(int))
+        one_hot = np.zeros((Board.BOARD_SIZE, Board.BOARD_SIZE))
+        one_hot[move] = 1.
+        one_hot = one_hot.flatten()
+
+#         print(one_hot)
+#         print(image.shape, one_hot.shape)
+        return image, one_hot
+
+
     def close(self):
         if self.sess is not None:
             self.sess.close()
@@ -243,8 +301,16 @@ class Pre(object):
             self.load_from_vat()
 
         if self.is_train:
-            self.adapt(Pre.DATA_SET_FILE)
-            self.train()
+            epoch = 0
+            while self.loss_window.get_average() == 0.0 or self.loss_window.get_average() > 1.0:
+                print('epoch: ', epoch)
+                epoch += 1
+                while self._has_more_data:
+                    self.adapt(Pre.DATA_SET_FILE)
+                    self.train()
+                # reset
+                self._file_read_index = 0
+                self._has_more_data = True
 
 
 if __name__ == '__main__':

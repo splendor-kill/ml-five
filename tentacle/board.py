@@ -19,7 +19,7 @@ class Board(object):
     STONE_EMPTY = 0
     STONE_BLACK = 1
     STONE_WHITE = 2
-    BOARD_SIZE = 15
+    BOARD_SIZE = 9
     BOARD_SIZE_SQ = BOARD_SIZE ** 2
     WIN_STONE_NUM = 5
     WIN_PATTERN = {STONE_BLACK: np.ones(WIN_STONE_NUM, dtype=int) * STONE_BLACK,
