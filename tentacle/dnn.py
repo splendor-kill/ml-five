@@ -4,6 +4,7 @@ import gc
 import os
 
 import psutil
+from scipy import ndimage
 
 import numpy as np
 import tensorflow as tf
@@ -32,16 +33,16 @@ class RingBuffer():
 class Pre(object):
     NUM_ACTIONS = Board.BOARD_SIZE_SQ
     NUM_LABELS = NUM_ACTIONS
-    NUM_CHANNELS = 3
+    NUM_CHANNELS = 9
 
     BATCH_SIZE = 30
     PATCH_SIZE = 5
     DEPTH = 16
-    NUM_HIDDEN = 64
+    NUM_HIDDEN = 256
 
-    LEARNING_RATE = 0.005
-    NUM_STEPS = 30000
-    DATASET_CAPACITY = 600000
+    LEARNING_RATE = 0.002
+    NUM_STEPS = 10000
+    DATASET_CAPACITY = 300000
 
     TRAIN_DIR = '/home/splendor/fusor/brain/'
     SUMMARY_DIR = '/home/splendor/fusor/summary'
@@ -63,43 +64,63 @@ class Pre(object):
         actions = tf.placeholder(tf.float32, shape=(None, Pre.NUM_LABELS))
         return states, actions
 
-    def _get_conved_size(self, orig, num_layers, stride):
-        s = orig
-        while num_layers > 0:
-            s = (s + stride - 1) // stride
-            num_layers -= 1
-        return s
-
     def model(self, states_pl, actions_pl):
         # HWC,outC
-        W_1 = tf.Variable(tf.truncated_normal([Pre.PATCH_SIZE, Pre.PATCH_SIZE, Pre.NUM_CHANNELS, Pre.DEPTH], stddev=0.1))
-        b_1 = tf.Variable(tf.zeros([Pre.DEPTH]))
-        W_2 = tf.Variable(tf.truncated_normal([Pre.PATCH_SIZE, Pre.PATCH_SIZE, Pre.DEPTH, Pre.DEPTH], stddev=0.1))
-        b_2 = tf.Variable(tf.constant(1.0, shape=[Pre.DEPTH]))
-
-        sz = self._get_conved_size(Board.BOARD_SIZE, 2, 2)
-
-        W_3 = tf.Variable(tf.truncated_normal([sz * sz * Pre.DEPTH, Pre.NUM_HIDDEN], stddev=0.1))
-        b_3 = tf.Variable(tf.constant(1.0, shape=[Pre.NUM_HIDDEN]))
-        W_4 = tf.Variable(tf.truncated_normal([Pre.NUM_HIDDEN, Pre.NUM_LABELS], stddev=0.1))
-        b_4 = tf.Variable(tf.constant(1.0, shape=[Pre.NUM_LABELS]))
+        ch1 = 20
+        W_1 = tf.Variable(tf.truncated_normal([3, 3, Pre.NUM_CHANNELS, ch1], stddev=0.1))
+        b_1 = tf.Variable(tf.zeros([ch1]))
+        ch = 28
+        W_2 = tf.Variable(tf.truncated_normal([3, 3, ch1, ch], stddev=0.1))
+        b_2 = tf.Variable(tf.constant(1.0, shape=[ch]))
+        W_21 = tf.Variable(tf.truncated_normal([3, 3, ch, ch], stddev=0.1))
+        b_21 = tf.Variable(tf.constant(1.0, shape=[ch]))
+        W_22 = tf.Variable(tf.truncated_normal([3, 3, ch, ch], stddev=0.1))
+        b_22 = tf.Variable(tf.constant(1.0, shape=[ch]))
+        W_23 = tf.Variable(tf.truncated_normal([3, 3, ch, ch], stddev=0.1))
+        b_23 = tf.Variable(tf.constant(1.0, shape=[ch]))
+        W_24 = tf.Variable(tf.truncated_normal([3, 3, ch, ch], stddev=0.1))
+        b_24 = tf.Variable(tf.constant(1.0, shape=[ch]))
+        W_25 = tf.Variable(tf.truncated_normal([3, 3, ch, ch], stddev=0.1))
+        b_25 = tf.Variable(tf.constant(1.0, shape=[ch]))
+        W_26 = tf.Variable(tf.truncated_normal([3, 3, ch, ch], stddev=0.1))
+        b_26 = tf.Variable(tf.constant(1.0, shape=[ch]))
+        W_27 = tf.Variable(tf.truncated_normal([3, 3, ch, ch], stddev=0.1))
+        b_27 = tf.Variable(tf.constant(1.0, shape=[ch]))
+        W_28 = tf.Variable(tf.truncated_normal([3, 3, ch, ch], stddev=0.1))
+        b_28 = tf.Variable(tf.constant(1.0, shape=[ch]))
+        W_29 = tf.Variable(tf.truncated_normal([3, 3, ch, ch], stddev=0.1))
+        b_29 = tf.Variable(tf.constant(1.0, shape=[ch]))
 
 #         print('state shape: ', states_pl.get_shape())
 #         print('W_1 shape: ', W_1.get_shape())
 #         print('W_2 shape: ', W_2.get_shape())
-#         print('W_3 shape: ', W_3.get_shape())
+#         print('W_21 shape: ', W_21.get_shape())
+#         print('W_31 shape: ', W_31.get_shape())
 
         h_conv1 = tf.nn.relu(tf.nn.conv2d(states_pl, W_1, [1, 2, 2, 1], padding='SAME') + b_1)
 #         print('conv1 shape: ', h_conv1.get_shape())
+        h_conv2 = tf.nn.relu(tf.nn.conv2d(h_conv1, W_2, [1, 1, 1, 1], padding='SAME') + b_2)
+        h_conv21 = tf.nn.relu(tf.nn.conv2d(h_conv2, W_21, [1, 1, 1, 1], padding='SAME') + b_21)
+        h_conv22 = tf.nn.relu(tf.nn.conv2d(h_conv21, W_22, [1, 1, 1, 1], padding='SAME') + b_22)
+        h_conv23 = tf.nn.relu(tf.nn.conv2d(h_conv22, W_23, [1, 1, 1, 1], padding='SAME') + b_23)
+        h_conv24 = tf.nn.relu(tf.nn.conv2d(h_conv23, W_24, [1, 1, 1, 1], padding='SAME') + b_24)
+        h_conv25 = tf.nn.relu(tf.nn.conv2d(h_conv24, W_25, [1, 1, 1, 1], padding='SAME') + b_25)
+        h_conv26 = tf.nn.relu(tf.nn.conv2d(h_conv25, W_26, [1, 1, 1, 1], padding='SAME') + b_26)
+        h_conv27 = tf.nn.relu(tf.nn.conv2d(h_conv26, W_27, [1, 1, 1, 1], padding='SAME') + b_27)
+        h_conv28 = tf.nn.relu(tf.nn.conv2d(h_conv27, W_28, [1, 1, 1, 1], padding='SAME') + b_28)
+        h_conv29 = tf.nn.relu(tf.nn.conv2d(h_conv28, W_29, [1, 1, 1, 1], padding='SAME') + b_29)
 
-        h_conv2 = tf.nn.relu(tf.nn.conv2d(h_conv1, W_2, [1, 2, 2, 1], padding='SAME') + b_2)
-        shape = h_conv2.get_shape().as_list()
-#         print('conv2 shape: ', shape)
+        shape = h_conv29.get_shape().as_list()
+        dim = np.cumprod(shape[1:])[-1]
+        h_conv_out = tf.reshape(h_conv29, [-1, dim])
 
-        reshape = tf.reshape(h_conv2, [-1, shape[1] * shape[2] * shape[3]])
-#         print('reshaped: ', reshape.get_shape())
+        W_3 = tf.Variable(tf.truncated_normal([dim, Pre.NUM_HIDDEN], stddev=0.1))
+        b_3 = tf.Variable(tf.constant(1.0, shape=[Pre.NUM_HIDDEN]))
 
-        hidden = tf.nn.relu(tf.matmul(reshape, W_3) + b_3)
+        W_4 = tf.Variable(tf.truncated_normal([Pre.NUM_HIDDEN, Pre.NUM_LABELS], stddev=0.1))
+        b_4 = tf.Variable(tf.constant(1.0, shape=[Pre.NUM_LABELS]))
+
+        hidden = tf.nn.relu(tf.matmul(h_conv_out, W_3) + b_3)
 
         predictions = tf.matmul(hidden, W_4) + b_4
 
@@ -266,18 +287,34 @@ class Pre(object):
         return unique_a
 
 
+    def _neighbor_count(self, board, who):
+        footprint = np.array([[1, 1, 1], [1, 0, 1], [1, 1, 1]])
+        return ndimage.generic_filter(board, lambda r: np.count_nonzero(r == who), footprint=footprint, mode='constant')
+
     def forge(self, row):
         '''
             channel 1: black
             channel 2: white
             channel 3: valid move
+            channel 4: black neighbors
+            channel 5: white neighbors
             lable: best move
         '''
         board = row[:Board.BOARD_SIZE_SQ]
         black = (board == Board.STONE_BLACK).astype(float)
         white = (board == Board.STONE_WHITE).astype(float)
         valid = (board == Board.STONE_EMPTY).astype(float)
-        image = np.dstack((black, white, valid)).flatten()
+        bnc = self._neighbor_count(board.reshape(-1, Board.BOARD_SIZE), Board.STONE_BLACK)
+        black_neighb1 = (bnc == 1).astype(np.float).ravel()
+        black_neighb2 = (bnc == 2).astype(np.float).ravel()
+        black_neighb3 = (bnc >= 3).astype(np.float).ravel()
+        wnc = self._neighbor_count(board.reshape(-1, Board.BOARD_SIZE), Board.STONE_WHITE)
+        white_neighb1 = (wnc == 1).astype(np.float).ravel()
+        white_neighb2 = (wnc == 2).astype(np.float).ravel()
+        white_neighb3 = (wnc >= 3).astype(np.float).ravel()
+        image = np.dstack((black, white, valid,
+                           black_neighb1, black_neighb2, black_neighb3,
+                           white_neighb1, white_neighb2, white_neighb3)).flatten()
 #         print(black.shape)
 #         print(black)
         move = tuple(row[-4:-2].astype(int))
@@ -311,6 +348,8 @@ class Pre(object):
                 # reset
                 self._file_read_index = 0
                 self._has_more_data = True
+#                 if epoch >= 1:
+#                     break
 
 
 if __name__ == '__main__':
