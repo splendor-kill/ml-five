@@ -35,14 +35,12 @@ class Pre(object):
     NUM_LABELS = NUM_ACTIONS
     NUM_CHANNELS = 9
 
-    BATCH_SIZE = 30
-    PATCH_SIZE = 5
-    DEPTH = 16
-    NUM_HIDDEN = 256
+    BATCH_SIZE = 100
 
     LEARNING_RATE = 0.002
     NUM_STEPS = 10000
-    DATASET_CAPACITY = 300000
+    DATASET_CAPACITY = 50000
+    DATASET_CAP_DELTA = 50000
 
     TRAIN_DIR = '/home/splendor/fusor/brain/'
     SUMMARY_DIR = '/home/splendor/fusor/summary'
@@ -58,6 +56,7 @@ class Pre(object):
         self.ds = None
         self.gstep = 0
         self.loss_window = RingBuffer(10)
+        self.stat = []
 
     def placeholder_inputs(self):
         states = tf.placeholder(tf.float32, [None, Board.BOARD_SIZE, Board.BOARD_SIZE, Pre.NUM_CHANNELS])  # NHWC
@@ -67,7 +66,7 @@ class Pre(object):
     def model(self, states_pl, actions_pl):
         # HWC,outC
         ch1 = 20
-        W_1 = tf.Variable(tf.truncated_normal([3, 3, Pre.NUM_CHANNELS, ch1], stddev=0.1))
+        W_1 = tf.Variable(tf.truncated_normal([5, 5, Pre.NUM_CHANNELS, ch1], stddev=0.1))
         b_1 = tf.Variable(tf.zeros([ch1]))
         ch = 28
         W_2 = tf.Variable(tf.truncated_normal([3, 3, ch1, ch], stddev=0.1))
@@ -114,10 +113,11 @@ class Pre(object):
         dim = np.cumprod(shape[1:])[-1]
         h_conv_out = tf.reshape(h_conv29, [-1, dim])
 
-        W_3 = tf.Variable(tf.truncated_normal([dim, Pre.NUM_HIDDEN], stddev=0.1))
-        b_3 = tf.Variable(tf.constant(1.0, shape=[Pre.NUM_HIDDEN]))
+        num_hidden = 256
+        W_3 = tf.Variable(tf.truncated_normal([dim, num_hidden], stddev=0.1))
+        b_3 = tf.Variable(tf.constant(1.0, shape=[num_hidden]))
 
-        W_4 = tf.Variable(tf.truncated_normal([Pre.NUM_HIDDEN, Pre.NUM_LABELS], stddev=0.1))
+        W_4 = tf.Variable(tf.truncated_normal([num_hidden, Pre.NUM_LABELS], stddev=0.1))
         b_4 = tf.Variable(tf.constant(1.0, shape=[Pre.NUM_LABELS]))
 
         hidden = tf.nn.relu(tf.matmul(h_conv_out, W_3) + b_3)
@@ -186,7 +186,7 @@ class Pre(object):
 
 
     def train(self):
-        stat = []
+        Pre.NUM_STEPS = Pre.DATASET_CAPACITY // Pre.BATCH_SIZE
         for step in range(Pre.NUM_STEPS):
             feed_dict = self.fill_feed_dict(self.ds.train, self.states_pl, self.actions_pl)
             _, loss, _ = self.sess.run([self.optimizer, self.loss, self.eval_correct], feed_dict=feed_dict)
@@ -200,17 +200,17 @@ class Pre(object):
                 self.summary_writer.add_summary(summary_str, self.gstep)
                 self.summary_writer.flush()
 
-            if (step + 1) % 1000 == 0 or (step + 1) == Pre.NUM_STEPS:
+            if (step + 1) % 100 == 0 or (step + 1) == Pre.NUM_STEPS:
                 self.saver.save(self.sess, Pre.TRAIN_DIR + 'model.ckpt', global_step=self.gstep)
                 train_accuracy = self.do_eval(self.eval_correct, self.states_pl, self.actions_pl, self.ds.train)
                 validation_accuracy = self.do_eval(self.eval_correct, self.states_pl, self.actions_pl, self.ds.validation)
-                stat.append((self.gstep, train_accuracy, validation_accuracy, 0.))
+                self.stat.append((self.gstep, train_accuracy, validation_accuracy, 0., Pre.DATASET_CAPACITY))
 #                 print('step: ', self.gstep)
 
         test_accuracy = self.do_eval(self.eval_correct, self.states_pl, self.actions_pl, self.ds.test)
         print('test accuracy:', test_accuracy)
 
-        np.savez(Pre.STAT_FILE, stat=np.array(stat))
+        np.savez(Pre.STAT_FILE, stat=np.array(self.stat))
 
 
     def adapt(self, filename):
@@ -258,6 +258,9 @@ class Pre(object):
         mem1 = proc.memory_info().rss
         print('gc(M): ', (mem1 - mem0) / 1024 ** 2)
 
+        Pre.DATASET_CAPACITY += Pre.DATASET_CAP_DELTA
+        if Pre.DATASET_CAPACITY > 2000000:
+            Pre.DATASET_CAPACITY = 2000000
         content = []
         with open(filename) as csvfile:
             reader = csv.reader(csvfile)
@@ -272,6 +275,7 @@ class Pre(object):
                 self._file_read_index += Pre.DATASET_CAPACITY
             else:
                 self._has_more_data = False
+
 
         content = np.array(content)
 
