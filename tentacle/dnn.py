@@ -34,11 +34,10 @@ class Pre(object):
     NUM_ACTIONS = Board.BOARD_SIZE_SQ
     NUM_CHANNELS = 3
 
-    BATCH_SIZE = 10
-
-    LEARNING_RATE = 0.002
-    NUM_STEPS = 100000
-    DATASET_CAPACITY = 1000000
+    BATCH_SIZE = 100
+    LEARNING_RATE = 0.001
+    NUM_STEPS = 3000
+    DATASET_CAPACITY = 300000
 
     TRAIN_DIR = '/home/splendor/fusor/brain/'
     SUMMARY_DIR = '/home/splendor/fusor/summary'
@@ -57,36 +56,45 @@ class Pre(object):
         self.stat = []
 
     def placeholder_inputs(self):
-        states = tf.placeholder(tf.float32, [None, Board.BOARD_SIZE, Board.BOARD_SIZE, Pre.NUM_CHANNELS])  # NHWC
+        h, w, c = self.get_input_shape()
+        states = tf.placeholder(tf.float32, [None, h, w, c])  # NHWC
         actions = tf.placeholder(tf.int64, [None])
         return states, actions
+
+    def weight_variable(self, shape):
+        initial = tf.truncated_normal(shape, stddev=0.1)
+        return tf.Variable(initial)
+
+    def bias_variable(self, shape):
+        initial = tf.constant(0.1, shape=shape)
+        return tf.Variable(initial)
 
     def model(self, states_pl, actions_pl):
         # HWC,outC
         ch1 = 20
-        W_1 = tf.Variable(tf.truncated_normal([5, 5, Pre.NUM_CHANNELS, ch1], stddev=0.1))
-        b_1 = tf.Variable(tf.zeros([ch1]))
+        W_1 = self.weight_variable([5, 5, Pre.NUM_CHANNELS, ch1])
+        b_1 = self.bias_variable([ch1])
         ch = 28
-        W_2 = tf.Variable(tf.truncated_normal([3, 3, ch1, ch], stddev=0.1))
-        b_2 = tf.Variable(tf.constant(1.0, shape=[ch]))
-        W_21 = tf.Variable(tf.truncated_normal([3, 3, ch, ch], stddev=0.1))
-        b_21 = tf.Variable(tf.constant(1.0, shape=[ch]))
-        W_22 = tf.Variable(tf.truncated_normal([3, 3, ch, ch], stddev=0.1))
-        b_22 = tf.Variable(tf.constant(1.0, shape=[ch]))
-        W_23 = tf.Variable(tf.truncated_normal([3, 3, ch, ch], stddev=0.1))
-        b_23 = tf.Variable(tf.constant(1.0, shape=[ch]))
-        W_24 = tf.Variable(tf.truncated_normal([3, 3, ch, ch], stddev=0.1))
-        b_24 = tf.Variable(tf.constant(1.0, shape=[ch]))
-        W_25 = tf.Variable(tf.truncated_normal([3, 3, ch, ch], stddev=0.1))
-        b_25 = tf.Variable(tf.constant(1.0, shape=[ch]))
-        W_26 = tf.Variable(tf.truncated_normal([3, 3, ch, ch], stddev=0.1))
-        b_26 = tf.Variable(tf.constant(1.0, shape=[ch]))
-        W_27 = tf.Variable(tf.truncated_normal([3, 3, ch, ch], stddev=0.1))
-        b_27 = tf.Variable(tf.constant(1.0, shape=[ch]))
-        W_28 = tf.Variable(tf.truncated_normal([3, 3, ch, ch], stddev=0.1))
-        b_28 = tf.Variable(tf.constant(1.0, shape=[ch]))
-        W_29 = tf.Variable(tf.truncated_normal([3, 3, ch, ch], stddev=0.1))
-        b_29 = tf.Variable(tf.constant(1.0, shape=[ch]))
+        W_2 = self.weight_variable([3, 3, ch1, ch])
+        b_2 = self.bias_variable([ch])
+        W_21 = self.weight_variable([3, 3, ch, ch])
+        b_21 = self.bias_variable([ch])
+        W_22 = self.weight_variable([3, 3, ch, ch])
+        b_22 = self.bias_variable([ch])
+        W_23 = self.weight_variable([3, 3, ch, ch])
+        b_23 = self.bias_variable([ch])
+        W_24 = self.weight_variable([3, 3, ch, ch])
+        b_24 = self.bias_variable([ch])
+        W_25 = self.weight_variable([3, 3, ch, ch])
+        b_25 = self.bias_variable([ch])
+        W_26 = self.weight_variable([3, 3, ch, ch])
+        b_26 = self.bias_variable([ch])
+        W_27 = self.weight_variable([3, 3, ch, ch])
+        b_27 = self.bias_variable([ch])
+        W_28 = self.weight_variable([3, 3, ch, ch])
+        b_28 = self.bias_variable([ch])
+        W_29 = self.weight_variable([3, 3, ch, ch])
+        b_29 = self.bias_variable([ch])
 
         h_conv1 = tf.nn.relu(tf.nn.conv2d(states_pl, W_1, [1, 2, 2, 1], padding='SAME') + b_1)
         h_conv2 = tf.nn.relu(tf.nn.conv2d(h_conv1, W_2, [1, 1, 1, 1], padding='SAME') + b_2)
@@ -104,25 +112,23 @@ class Pre(object):
         dim = np.cumprod(shape[1:])[-1]
         h_conv_out = tf.reshape(h_conv29, [-1, dim])
 
-        num_hidden = 256
-        W_3 = tf.Variable(tf.truncated_normal([dim, num_hidden], stddev=0.1))
-        b_3 = tf.Variable(tf.constant(1.0, shape=[num_hidden]))
-
-        W_4 = tf.Variable(tf.truncated_normal([num_hidden, Pre.NUM_ACTIONS], stddev=0.1))
-        b_4 = tf.Variable(tf.constant(1.0, shape=[Pre.NUM_ACTIONS]))
+        num_hidden = 64
+        W_3 = self.weight_variable([dim, num_hidden])
+        b_3 = self.bias_variable([num_hidden])
+        W_4 = self.weight_variable([num_hidden, Pre.NUM_ACTIONS])
+        b_4 = self.bias_variable([Pre.NUM_ACTIONS])
 
         hidden = tf.nn.relu(tf.matmul(h_conv_out, W_3) + b_3)
-        self.predictions = tf.matmul(hidden, W_4) + b_4
-        self.cross_entropy = tf.nn.sparse_softmax_cross_entropy_with_logits(self.predictions, actions_pl)
-        self.loss = tf.reduce_max(self.cross_entropy)
+        predictions = tf.matmul(hidden, W_4) + b_4
+
+        cross_entropy = tf.nn.sparse_softmax_cross_entropy_with_logits(predictions, actions_pl)
+        self.loss = tf.reduce_mean(cross_entropy)
         tf.scalar_summary("loss", self.loss)
+        self.optimizer = tf.train.AdadeltaOptimizer(Pre.LEARNING_RATE).minimize(self.loss)
 
-        self.optimizer = tf.train.GradientDescentOptimizer(Pre.LEARNING_RATE).minimize(self.loss)
-
-        self.predict_probs = tf.nn.softmax(self.predictions)
-        Z = tf.equal(tf.argmax(self.predict_probs, 1), actions_pl)
-        self.eval_correct = tf.reduce_sum(tf.cast(Z, tf.int32))
-
+        self.predict_probs = tf.nn.softmax(predictions)
+        eq = tf.equal(tf.argmax(self.predict_probs, 1), actions_pl)
+        self.eval_correct = tf.reduce_sum(tf.cast(eq, tf.int32))
 
     def prepare(self):
         self.states_pl, self.actions_pl = self.placeholder_inputs()
@@ -144,8 +150,9 @@ class Pre(object):
         if ckpt and ckpt.model_checkpoint_path:
             self.saver.restore(self.sess, ckpt.model_checkpoint_path)
 
-    def fill_feed_dict(self, data_set, states_pl, actions_pl):
-        states_feed, actions_feed = data_set.next_batch(Pre.BATCH_SIZE)
+    def fill_feed_dict(self, data_set, states_pl, actions_pl, batch_size=None):
+        batch_size = batch_size or Pre.BATCH_SIZE
+        states_feed, actions_feed = data_set.next_batch(batch_size)
         feed_dict = {
             states_pl: states_feed,
             actions_pl: actions_feed.ravel(),
@@ -154,27 +161,27 @@ class Pre(object):
 
     def do_eval(self, eval_correct, states_pl, actions_pl, data_set):
         true_count = 0  # Counts the number of correct predictions.
-        steps_per_epoch = data_set.num_examples // Pre.BATCH_SIZE
-        num_examples = steps_per_epoch * Pre.BATCH_SIZE
+        batch_size = Pre.BATCH_SIZE
+        steps_per_epoch = data_set.num_examples // batch_size
+        num_examples = steps_per_epoch * batch_size
         for _ in range(steps_per_epoch):
-            feed_dict = self.fill_feed_dict(data_set, states_pl, actions_pl)
+            feed_dict = self.fill_feed_dict(data_set, states_pl, actions_pl, batch_size)
             true_count += self.sess.run(eval_correct, feed_dict=feed_dict)
         precision = true_count / num_examples
-#         print('  Num examples: %d,  Num correct: %d,  Precision: %0.04f' % (num_examples, true_count, precision))
         return precision
 
     def get_move_probs(self, state):
+        h, w, c = self.get_input_shape()
         feed_dict = {
-            self.states_pl: state.reshape(1, -1).reshape((-1, Board.BOARD_SIZE, Board.BOARD_SIZE, Pre.NUM_CHANNELS)),
+            self.states_pl: state.reshape(1, -1).reshape((-1, h, w, c)),
             self.actions_pl: np.zeros(1)
         }
         return self.sess.run(self.predict_probs, feed_dict=feed_dict)
 
-
     def train(self):
         for step in range(Pre.NUM_STEPS):
             feed_dict = self.fill_feed_dict(self.ds.train, self.states_pl, self.actions_pl)
-            _, loss, _ = self.sess.run([self.optimizer, self.loss, self.eval_correct], feed_dict=feed_dict)
+            _, loss = self.sess.run([self.optimizer, self.loss], feed_dict=feed_dict)
             self.loss_window.extend(loss)
 
             self.gstep += 1
@@ -190,7 +197,7 @@ class Pre(object):
                 train_accuracy = self.do_eval(self.eval_correct, self.states_pl, self.actions_pl, self.ds.train)
                 validation_accuracy = self.do_eval(self.eval_correct, self.states_pl, self.actions_pl, self.ds.validation)
                 self.stat.append((self.gstep, train_accuracy, validation_accuracy, 0., Pre.DATASET_CAPACITY))
-                print('step: ', self.gstep)
+#                 print('step: ', self.gstep)
 
         test_accuracy = self.do_eval(self.eval_correct, self.states_pl, self.actions_pl, self.ds.test)
         print('test accuracy:', test_accuracy)
@@ -200,13 +207,12 @@ class Pre(object):
 
     def adapt(self, filename):
         ds = []
-        dat = pre.load_dataset(filename)
+        dat = self.load_dataset(filename)
         for row in dat:
             s, a = self.forge(row)
             ds.append((s, a))
 
         ds = np.array(ds)
-        print(ds.shape, ds[0, 0].shape)
 
         np.random.shuffle(ds)
 
@@ -219,9 +225,10 @@ class Pre(object):
         validation = train[:validation_size, :]
         train = train[validation_size:, :]
 
-        train = DataSet(np.vstack(train[:, 0]).reshape((-1, Board.BOARD_SIZE, Board.BOARD_SIZE, Pre.NUM_CHANNELS)), np.vstack(train[:, 1]))
-        validation = DataSet(np.vstack(validation[:, 0]).reshape((-1, Board.BOARD_SIZE, Board.BOARD_SIZE, Pre.NUM_CHANNELS)), np.vstack(validation[:, 1]))
-        test = DataSet(np.vstack(test[:, 0]).reshape((-1, Board.BOARD_SIZE, Board.BOARD_SIZE, Pre.NUM_CHANNELS)), np.vstack(test[:, 1]))
+        h, w, c = self.get_input_shape()
+        train = DataSet(np.vstack(train[:, 0]).reshape((-1, h, w, c)), np.vstack(train[:, 1]))
+        validation = DataSet(np.vstack(validation[:, 0]).reshape((-1, h, w, c)), np.vstack(validation[:, 1]))
+        test = DataSet(np.vstack(test[:, 0]).reshape((-1, h, w, c)), np.vstack(test[:, 1]))
 
         print(train.images.shape, train.labels.shape)
         print(validation.images.shape, validation.labels.shape)
@@ -229,6 +236,8 @@ class Pre(object):
 
         self.ds = Datasets(train=train, validation=validation, test=test)
 
+    def get_input_shape(self):
+        return Board.BOARD_SIZE, Board.BOARD_SIZE, Pre.NUM_CHANNELS
 
     def load_dataset(self, filename):
         proc = psutil.Process(os.getpid())
@@ -273,36 +282,23 @@ class Pre(object):
         footprint = np.array([[1, 1, 1], [1, 0, 1], [1, 1, 1]])
         return ndimage.generic_filter(board, lambda r: np.count_nonzero(r == who), footprint=footprint, mode='constant')
 
-    def forge(self, row):
-        '''
-            channel 1: black
-            channel 2: white
-            channel 3: valid move
-            channel 4: black neighbors
-            channel 5: white neighbors
-            lable: best move
-        '''
-        board = row[:Board.BOARD_SIZE_SQ]
+    def adapt_state(self, board):
         black = (board == Board.STONE_BLACK).astype(float)
         white = (board == Board.STONE_WHITE).astype(float)
-        valid = (board == Board.STONE_EMPTY).astype(float)
-#         bnc = self._neighbor_count(board.reshape(-1, Board.BOARD_SIZE), Board.STONE_BLACK)
-#         black_neighb1 = (bnc == 1).astype(np.float).ravel()
-#         black_neighb2 = (bnc == 2).astype(np.float).ravel()
-#         black_neighb3 = (bnc >= 3).astype(np.float).ravel()
-#         wnc = self._neighbor_count(board.reshape(-1, Board.BOARD_SIZE), Board.STONE_WHITE)
-#         white_neighb1 = (wnc == 1).astype(np.float).ravel()
-#         white_neighb2 = (wnc == 2).astype(np.float).ravel()
-#         white_neighb3 = (wnc >= 3).astype(np.float).ravel()
-        image = np.dstack((black, white, valid,
-#                            black_neighb1, black_neighb2, black_neighb3,
-#                            white_neighb1, white_neighb2, white_neighb3
-                            )).flatten()
+        empty = (board == Board.STONE_EMPTY).astype(float)
+
+        image = np.dstack((black, white, empty)).ravel()
+        legal = empty.astype(bool)
+        return image, legal
+
+    def forge(self, row):
+        board = row[:Board.BOARD_SIZE_SQ]
+        image, _ = self.adapt_state(board)
+
         move = tuple(row[-4:-2].astype(int))
         move = np.ravel_multi_index(move, (Board.BOARD_SIZE, Board.BOARD_SIZE))
 
         return image, move
-
 
     def close(self):
         if self.sess is not None:
@@ -316,7 +312,7 @@ class Pre(object):
 
         if self.is_train:
             epoch = 0
-            while self.loss_window.get_average() == 0.0 or self.loss_window.get_average() > 1.0:
+            while self.loss_window.get_average() == 0.0 or self.loss_window.get_average() > 0.5:
                 print('epoch: ', epoch)
                 epoch += 1
                 while self._has_more_data:
