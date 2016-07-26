@@ -52,11 +52,8 @@ class StrategyDNN(Strategy):
             return random.choice(moves)
 
     def get_input_values(self, board):
-        black = (board == Board.STONE_BLACK).astype(float)
-        white = (board == Board.STONE_WHITE).astype(float)
-        empty = (board == Board.STONE_EMPTY).astype(float)
-        legal = empty.astype(bool)
-        return np.dstack((black, white, empty)).ravel(), legal
+        state, legal = self.brain.adapt_state(board)
+        return state, legal
 
     def save(self, file):
         pass
