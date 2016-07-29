@@ -40,3 +40,10 @@ class DataSet(object):
             assert batch_size <= self._num_examples
         end = self._index_in_epoch
         return self._images[start:end], self._labels[start:end]
+
+    def make_sub_data_set(self, size):
+        perm = np.arange(self._num_examples)
+        np.random.shuffle(perm)
+        images = self._images[perm]
+        labels = self._labels[perm]
+        return DataSet(images[:size], labels[:size])
