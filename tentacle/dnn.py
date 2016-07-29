@@ -2,6 +2,7 @@ import collections
 import csv
 import gc
 import os
+import time
 
 import psutil
 from scipy import ndimage
@@ -34,15 +35,15 @@ class Pre(object):
     NUM_ACTIONS = Board.BOARD_SIZE_SQ
     NUM_CHANNELS = 3
 
-    BATCH_SIZE = 100
+    BATCH_SIZE = 40
     LEARNING_RATE = 0.001
-    NUM_STEPS = 3000
-    DATASET_CAPACITY = 300000
+    NUM_STEPS = 10000000
+    DATASET_CAPACITY = 400000
 
     TRAIN_DIR = '/home/splendor/fusor/brain/'
     SUMMARY_DIR = '/home/splendor/fusor/summary'
-    STAT_FILE = '/home/splendor/glycogen/stat.npz'
-    DATA_SET_FILE = 'dataset_9x9_dilated.txt'
+    STAT_FILE = '/home/splendor/fusor/stat.npz'
+    DATA_SET_FILE = 'dataset_9x9_1w.txt'
 
 
     def __init__(self, is_train=True, is_revive=False):
@@ -54,6 +55,7 @@ class Pre(object):
         self.gstep = 0
         self.loss_window = RingBuffer(10)
         self.stat = []
+
 
     def placeholder_inputs(self):
         h, w, c = self.get_input_shape()
@@ -160,7 +162,7 @@ class Pre(object):
         return feed_dict
 
     def do_eval(self, eval_correct, states_pl, actions_pl, data_set):
-        true_count = 0  # Counts the number of correct predictions.
+        true_count = 0
         batch_size = Pre.BATCH_SIZE
         steps_per_epoch = data_set.num_examples // batch_size
         num_examples = steps_per_epoch * batch_size
@@ -179,14 +181,15 @@ class Pre(object):
         return self.sess.run(self.predict_probs, feed_dict=feed_dict)
 
     def train(self):
+#         Pre.NUM_STEPS = self.ds.train.num_examples // Pre.BATCH_SIZE
+#         print('total num steps: ', Pre.NUM_STEPS)
+        start_time = time.time()
         for step in range(Pre.NUM_STEPS):
             feed_dict = self.fill_feed_dict(self.ds.train, self.states_pl, self.actions_pl)
             _, loss = self.sess.run([self.optimizer, self.loss], feed_dict=feed_dict)
             self.loss_window.extend(loss)
-
             self.gstep += 1
             step += 1
-
             if (step % 100 == 0):
                 summary_str = self.sess.run(self.summary_op, feed_dict=feed_dict)
                 self.summary_writer.add_summary(summary_str, self.gstep)
@@ -196,14 +199,29 @@ class Pre(object):
                 self.saver.save(self.sess, Pre.TRAIN_DIR + 'model.ckpt', global_step=self.gstep)
                 train_accuracy = self.do_eval(self.eval_correct, self.states_pl, self.actions_pl, self.ds.train)
                 validation_accuracy = self.do_eval(self.eval_correct, self.states_pl, self.actions_pl, self.ds.validation)
-                self.stat.append((self.gstep, train_accuracy, validation_accuracy, 0., Pre.DATASET_CAPACITY))
-#                 print('step: ', self.gstep)
+                self.stat.append((self.gstep, train_accuracy, validation_accuracy, 0.))
+                if train_accuracy - validation_accuracy > 0.1:
+                    print('deverge at: ', step + 1)
+                    break
 
+        duration = time.time() - start_time
         test_accuracy = self.do_eval(self.eval_correct, self.states_pl, self.actions_pl, self.ds.test)
-        print('test accuracy:', test_accuracy)
+        print('test accuracy: %.3f, time cost: %.3f sec' % (test_accuracy, duration))
 
-        np.savez(Pre.STAT_FILE, stat=np.array(self.stat))
+        J_train = self.test_against_size(self.ds.train)
+        J_cv = self.test_against_size(self.ds.validation)
+        np.savez(Pre.STAT_FILE, stat=np.array(self.stat), J_train=J_train, J_cv=J_cv)
 
+
+    def test_against_size(self, ds):
+        trend = []
+        sz = ds.num_examples
+        split = np.linspace(0, sz, 40, dtype=np.int)
+        for sz in split[1:]:
+            sub_ds = ds.make_sub_data_set(sz)
+            accuracy = self.do_eval(self.eval_correct, self.states_pl, self.actions_pl, sub_ds)
+            trend.append((sz, accuracy))
+        return trend
 
     def adapt(self, filename):
         ds = []
@@ -222,7 +240,7 @@ class Pre(object):
         test = ds[train_size:, :]
 
         validation_size = int(train.shape[0] * 0.2)
-        validation = train[:validation_size, :]
+        tmpv = validation = train[:validation_size, :]
         train = train[validation_size:, :]
 
         h, w, c = self.get_input_shape()
@@ -235,6 +253,7 @@ class Pre(object):
         print(test.images.shape, test.labels.shape)
 
         self.ds = Datasets(train=train, validation=validation, test=test)
+
 
     def get_input_shape(self):
         return Board.BOARD_SIZE, Board.BOARD_SIZE, Pre.NUM_CHANNELS
@@ -312,7 +331,7 @@ class Pre(object):
 
         if self.is_train:
             epoch = 0
-            while self.loss_window.get_average() == 0.0 or self.loss_window.get_average() > 0.5:
+            while self.loss_window.get_average() == 0.0 or self.loss_window.get_average() > 0.1:
                 print('epoch: ', epoch)
                 epoch += 1
                 while self._has_more_data:
@@ -321,8 +340,8 @@ class Pre(object):
                 # reset
                 self._file_read_index = 0
                 self._has_more_data = True
-#                 if epoch >= 1:
-#                     break
+                if epoch >= 1:
+                    break
 
 
 if __name__ == '__main__':
