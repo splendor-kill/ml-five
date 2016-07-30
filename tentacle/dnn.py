@@ -2,6 +2,7 @@ import collections
 import csv
 import gc
 import os
+import re
 import time
 
 import psutil
@@ -38,12 +39,13 @@ class Pre(object):
     BATCH_SIZE = 40
     LEARNING_RATE = 0.001
     NUM_STEPS = 10000000
-    DATASET_CAPACITY = 400000
+    DATASET_CAPACITY = 4000
 
     TRAIN_DIR = '/home/splendor/fusor/brain/'
     SUMMARY_DIR = '/home/splendor/fusor/summary'
     STAT_FILE = '/home/splendor/fusor/stat.npz'
-    DATA_SET_FILE = 'dataset_9x9_1w.txt'
+    MID_VIS_FILE = '/home/splendor/fusor/mid_vis.npz'
+    DATA_SET_FILE = 'dataset_9x9_dilated.txt'
 
 
     def __init__(self, is_train=True, is_revive=False):
@@ -53,9 +55,10 @@ class Pre(object):
         self._has_more_data = True
         self.ds = None
         self.gstep = 0
-        self.loss_window = RingBuffer(10)
+#         self.loss_window = RingBuffer(10)
         self.stat = []
-
+        self.acc_vs_size = []
+        self.gap = 0
 
     def placeholder_inputs(self):
         h, w, c = self.get_input_shape()
@@ -169,7 +172,7 @@ class Pre(object):
         for _ in range(steps_per_epoch):
             feed_dict = self.fill_feed_dict(data_set, states_pl, actions_pl, batch_size)
             true_count += self.sess.run(eval_correct, feed_dict=feed_dict)
-        precision = true_count / num_examples
+        precision = true_count / (num_examples or 1)
         return precision
 
     def get_move_probs(self, state):
@@ -180,14 +183,16 @@ class Pre(object):
         }
         return self.sess.run(self.predict_probs, feed_dict=feed_dict)
 
-    def train(self):
-#         Pre.NUM_STEPS = self.ds.train.num_examples // Pre.BATCH_SIZE
-#         print('total num steps: ', Pre.NUM_STEPS)
+    def train(self, ith_part):
+        Pre.NUM_STEPS = self.ds.train.num_examples // Pre.BATCH_SIZE
+        print('total num steps: ', Pre.NUM_STEPS)
         start_time = time.time()
+        train_accuracy = 0
+        validation_accuracy = 0
         for step in range(Pre.NUM_STEPS):
             feed_dict = self.fill_feed_dict(self.ds.train, self.states_pl, self.actions_pl)
             _, loss = self.sess.run([self.optimizer, self.loss], feed_dict=feed_dict)
-            self.loss_window.extend(loss)
+#             self.loss_window.extend(loss)
             self.gstep += 1
             step += 1
             if (step % 100 == 0):
@@ -200,18 +205,25 @@ class Pre(object):
                 train_accuracy = self.do_eval(self.eval_correct, self.states_pl, self.actions_pl, self.ds.train)
                 validation_accuracy = self.do_eval(self.eval_correct, self.states_pl, self.actions_pl, self.ds.validation)
                 self.stat.append((self.gstep, train_accuracy, validation_accuracy, 0.))
-                if train_accuracy - validation_accuracy > 0.1:
-                    print('deverge at: ', step + 1)
-                    break
+                self.gap = train_accuracy - validation_accuracy
+#                 if self.gap > 0.1:
+#                     print('deverge at: ', step + 1)
+#                     break
+            if step == 10:
+                self.mid_vis(feed_dict)
 
         duration = time.time() - start_time
         test_accuracy = self.do_eval(self.eval_correct, self.states_pl, self.actions_pl, self.ds.test)
-        print('test accuracy: %.3f, time cost: %.3f sec' % (test_accuracy, duration))
+        print('part: %d, acc_train: %.3f, acc_valid: %.3f, test accuracy: %.3f, time cost: %.3f sec' %
+              (ith_part, train_accuracy, validation_accuracy, test_accuracy, duration))
+        self.acc_vs_size.append((ith_part * Pre.NUM_STEPS * Pre.BATCH_SIZE, train_accuracy, validation_accuracy, test_accuracy))
 
-        J_train = self.test_against_size(self.ds.train)
-        J_cv = self.test_against_size(self.ds.validation)
-        np.savez(Pre.STAT_FILE, stat=np.array(self.stat), J_train=J_train, J_cv=J_cv)
+        J_train = 0  # self.test_against_size(self.ds.train)
+        J_cv = 0  # self.test_against_size(self.ds.validation)
+        np.savez(Pre.STAT_FILE, stat=np.array(self.stat), J_train=J_train, J_cv=J_cv, vs_size=self.acc_vs_size)
 
+    def mid_vis(self, feed_dict):
+        pass
 
     def test_against_size(self, ds):
         trend = []
@@ -240,7 +252,7 @@ class Pre(object):
         test = ds[train_size:, :]
 
         validation_size = int(train.shape[0] * 0.2)
-        tmpv = validation = train[:validation_size, :]
+        validation = train[:validation_size, :]
         train = train[validation_size:, :]
 
         h, w, c = self.get_input_shape()
@@ -257,6 +269,13 @@ class Pre(object):
 
     def get_input_shape(self):
         return Board.BOARD_SIZE, Board.BOARD_SIZE, Pre.NUM_CHANNELS
+
+    def _get_setting_str(self):
+        regex = r'dataset_\w+?(_\w+)?.txt'
+        matchObj = re.match(regex, Pre.DATA_SET_FILE, re.I)
+        ds_size = matchObj.group(1) if matchObj else ''
+        layers = 6
+        return ds_size + '_' + str(layers)
 
     def load_dataset(self, filename):
         proc = psutil.Process(os.getpid())
@@ -331,12 +350,19 @@ class Pre(object):
 
         if self.is_train:
             epoch = 0
-            while self.loss_window.get_average() == 0.0 or self.loss_window.get_average() > 0.1:
+#             while self.loss_window.get_average() == 0.0 or self.loss_window.get_average() > 0.1:
+            while self.gap < 0.1:
                 print('epoch: ', epoch)
                 epoch += 1
+
+                ith_part = 0
                 while self._has_more_data:
+                    ith_part += 1
                     self.adapt(Pre.DATA_SET_FILE)
-                    self.train()
+                    self.train(ith_part)
+                    if ith_part >= 1:
+                        break
+
                 # reset
                 self._file_read_index = 0
                 self._has_more_data = True
