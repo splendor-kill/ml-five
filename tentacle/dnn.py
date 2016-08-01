@@ -36,10 +36,10 @@ class Pre(object):
     NUM_ACTIONS = Board.BOARD_SIZE_SQ
     NUM_CHANNELS = 3
 
-    BATCH_SIZE = 40
+    BATCH_SIZE = 32
     LEARNING_RATE = 0.001
     NUM_STEPS = 10000000
-    DATASET_CAPACITY = 4000
+    DATASET_CAPACITY = 400000
 
     TRAIN_DIR = '/home/splendor/fusor/brain/'
     SUMMARY_DIR = '/home/splendor/fusor/summary'
@@ -84,47 +84,47 @@ class Pre(object):
         b_2 = self.bias_variable([ch])
         W_21 = self.weight_variable([3, 3, ch, ch])
         b_21 = self.bias_variable([ch])
-        W_22 = self.weight_variable([3, 3, ch, ch])
-        b_22 = self.bias_variable([ch])
-        W_23 = self.weight_variable([3, 3, ch, ch])
-        b_23 = self.bias_variable([ch])
-        W_24 = self.weight_variable([3, 3, ch, ch])
-        b_24 = self.bias_variable([ch])
-        W_25 = self.weight_variable([3, 3, ch, ch])
-        b_25 = self.bias_variable([ch])
-        W_26 = self.weight_variable([3, 3, ch, ch])
-        b_26 = self.bias_variable([ch])
-        W_27 = self.weight_variable([3, 3, ch, ch])
-        b_27 = self.bias_variable([ch])
-        W_28 = self.weight_variable([3, 3, ch, ch])
-        b_28 = self.bias_variable([ch])
-        W_29 = self.weight_variable([3, 3, ch, ch])
-        b_29 = self.bias_variable([ch])
+#         W_22 = self.weight_variable([3, 3, ch, ch])
+#         b_22 = self.bias_variable([ch])
+#         W_23 = self.weight_variable([3, 3, ch, ch])
+#         b_23 = self.bias_variable([ch])
+#         W_24 = self.weight_variable([3, 3, ch, ch])
+#         b_24 = self.bias_variable([ch])
+#         W_25 = self.weight_variable([3, 3, ch, ch])
+#         b_25 = self.bias_variable([ch])
+#         W_26 = self.weight_variable([3, 3, ch, ch])
+#         b_26 = self.bias_variable([ch])
+#         W_27 = self.weight_variable([3, 3, ch, ch])
+#         b_27 = self.bias_variable([ch])
+#         W_28 = self.weight_variable([3, 3, ch, ch])
+#         b_28 = self.bias_variable([ch])
+#         W_29 = self.weight_variable([3, 3, ch, ch])
+#         b_29 = self.bias_variable([ch])
 
-        h_conv1 = tf.nn.relu(tf.nn.conv2d(states_pl, W_1, [1, 2, 2, 1], padding='SAME') + b_1)
-        h_conv2 = tf.nn.relu(tf.nn.conv2d(h_conv1, W_2, [1, 1, 1, 1], padding='SAME') + b_2)
-        h_conv21 = tf.nn.relu(tf.nn.conv2d(h_conv2, W_21, [1, 1, 1, 1], padding='SAME') + b_21)
-        h_conv22 = tf.nn.relu(tf.nn.conv2d(h_conv21, W_22, [1, 1, 1, 1], padding='SAME') + b_22)
-        h_conv23 = tf.nn.relu(tf.nn.conv2d(h_conv22, W_23, [1, 1, 1, 1], padding='SAME') + b_23)
-        h_conv24 = tf.nn.relu(tf.nn.conv2d(h_conv23, W_24, [1, 1, 1, 1], padding='SAME') + b_24)
-        h_conv25 = tf.nn.relu(tf.nn.conv2d(h_conv24, W_25, [1, 1, 1, 1], padding='SAME') + b_25)
-        h_conv26 = tf.nn.relu(tf.nn.conv2d(h_conv25, W_26, [1, 1, 1, 1], padding='SAME') + b_26)
-        h_conv27 = tf.nn.relu(tf.nn.conv2d(h_conv26, W_27, [1, 1, 1, 1], padding='SAME') + b_27)
-        h_conv28 = tf.nn.relu(tf.nn.conv2d(h_conv27, W_28, [1, 1, 1, 1], padding='SAME') + b_28)
-        h_conv29 = tf.nn.relu(tf.nn.conv2d(h_conv28, W_29, [1, 1, 1, 1], padding='SAME') + b_29)
+        self.h_conv1 = tf.nn.relu(tf.nn.conv2d(states_pl, W_1, [1, 2, 2, 1], padding='SAME') + b_1)
+        self.h_conv2 = tf.nn.relu(tf.nn.conv2d(self.h_conv1, W_2, [1, 1, 1, 1], padding='SAME') + b_2)
+        self.h_conv21 = tf.nn.relu(tf.nn.conv2d(self.h_conv2, W_21, [1, 1, 1, 1], padding='SAME') + b_21)
+#         h_conv22 = tf.nn.relu(tf.nn.conv2d(h_conv21, W_22, [1, 1, 1, 1], padding='SAME') + b_22)
+#         h_conv23 = tf.nn.relu(tf.nn.conv2d(h_conv22, W_23, [1, 1, 1, 1], padding='SAME') + b_23)
+#         h_conv24 = tf.nn.relu(tf.nn.conv2d(h_conv23, W_24, [1, 1, 1, 1], padding='SAME') + b_24)
+#         h_conv25 = tf.nn.relu(tf.nn.conv2d(h_conv24, W_25, [1, 1, 1, 1], padding='SAME') + b_25)
+#         h_conv26 = tf.nn.relu(tf.nn.conv2d(h_conv25, W_26, [1, 1, 1, 1], padding='SAME') + b_26)
+#         h_conv27 = tf.nn.relu(tf.nn.conv2d(h_conv26, W_27, [1, 1, 1, 1], padding='SAME') + b_27)
+#         h_conv28 = tf.nn.relu(tf.nn.conv2d(h_conv27, W_28, [1, 1, 1, 1], padding='SAME') + b_28)
+#         h_conv29 = tf.nn.relu(tf.nn.conv2d(h_conv28, W_29, [1, 1, 1, 1], padding='SAME') + b_29)
 
-        shape = h_conv29.get_shape().as_list()
+        shape = self.h_conv21.get_shape().as_list()
         dim = np.cumprod(shape[1:])[-1]
-        h_conv_out = tf.reshape(h_conv29, [-1, dim])
+        h_conv_out = tf.reshape(self.h_conv21, [-1, dim])
 
-        num_hidden = 64
+        num_hidden = 128
         W_3 = self.weight_variable([dim, num_hidden])
         b_3 = self.bias_variable([num_hidden])
         W_4 = self.weight_variable([num_hidden, Pre.NUM_ACTIONS])
         b_4 = self.bias_variable([Pre.NUM_ACTIONS])
 
-        hidden = tf.nn.relu(tf.matmul(h_conv_out, W_3) + b_3)
-        predictions = tf.matmul(hidden, W_4) + b_4
+        self.hidden = tf.nn.relu(tf.matmul(h_conv_out, W_3) + b_3)
+        predictions = tf.matmul(self.hidden, W_4) + b_4
 
         cross_entropy = tf.nn.sparse_softmax_cross_entropy_with_logits(predictions, actions_pl)
         self.loss = tf.reduce_mean(cross_entropy)
@@ -209,7 +209,7 @@ class Pre(object):
 #                 if self.gap > 0.1:
 #                     print('deverge at: ', step + 1)
 #                     break
-            if step == 10:
+            if step == 11:
                 self.mid_vis(feed_dict)
 
         duration = time.time() - start_time
@@ -223,7 +223,8 @@ class Pre(object):
         np.savez(Pre.STAT_FILE, stat=np.array(self.stat), J_train=J_train, J_cv=J_cv, vs_size=self.acc_vs_size)
 
     def mid_vis(self, feed_dict):
-        pass
+        conv1, conv2, conv21, hide, pred = self.sess.run([self.h_conv1, self.h_conv2, self.h_conv21, self.hidden, self.predict_probs], feed_dict=feed_dict)
+        np.savez(Pre.MID_VIS_FILE, feed=feed_dict[self.states_pl], conv1=conv1, conv2=conv2, conv21=conv21, hide=hide, pred=pred)
 
     def test_against_size(self, ds):
         trend = []
@@ -360,17 +361,17 @@ class Pre(object):
                     ith_part += 1
                     self.adapt(Pre.DATA_SET_FILE)
                     self.train(ith_part)
-                    if ith_part >= 1:
-                        break
+#                     if ith_part >= 1:
+#                         break
 
                 # reset
                 self._file_read_index = 0
                 self._has_more_data = True
-                if epoch >= 1:
-                    break
+#                 if epoch >= 1:
+#                     break
 
 
 if __name__ == '__main__':
-    pre = Pre()
+    pre = Pre(is_revive=False)
     pre.run()
 

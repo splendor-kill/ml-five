@@ -48,7 +48,7 @@ class DCNN1(Pre):
         dim = np.cumprod(shape[1:])[-1]
         h_conv_out = tf.reshape(self.h_conv21, [-1, dim])
 
-        num_hidden = 64
+        num_hidden = 128
         W_3 = self.weight_variable([dim, num_hidden])
         b_3 = self.bias_variable([num_hidden])
         W_4 = self.weight_variable([num_hidden, Pre.NUM_ACTIONS])
