@@ -37,15 +37,18 @@ class Pre(object):
     NUM_CHANNELS = 3
 
     BATCH_SIZE = 32
-    LEARNING_RATE = 0.001
+    LEARNING_RATE = 0.01
     NUM_STEPS = 10000000
-    DATASET_CAPACITY = 400000
+    DATASET_CAPACITY = 200000
 
     TRAIN_DIR = '/home/splendor/fusor/brain/'
     SUMMARY_DIR = '/home/splendor/fusor/summary'
     STAT_FILE = '/home/splendor/fusor/stat.npz'
     MID_VIS_FILE = '/home/splendor/fusor/mid_vis.npz'
-    DATA_SET_FILE = 'dataset_9x9_dilated.txt'
+    DATA_SET_FILE = 'dataset_merged_unique_ge200w_train.txt'
+    DATA_SET_TRAIN = 'dataset_merged_unique_ge200w_train.txt'
+    DATA_SET_VALID = 'dataset_merged_unique_ge200w_valid.txt'
+    DATA_SET_TEST = 'dataset_merged_unique_ge200w_test.txt'
 
 
     def __init__(self, is_train=True, is_revive=False):
@@ -67,7 +70,7 @@ class Pre(object):
         return states, actions
 
     def weight_variable(self, shape):
-        initial = tf.truncated_normal(shape, stddev=0.1)
+        initial = tf.truncated_normal(shape, stddev=0.01)
         return tf.Variable(initial)
 
     def bias_variable(self, shape):
@@ -160,7 +163,7 @@ class Pre(object):
         states_feed, actions_feed = data_set.next_batch(batch_size)
         feed_dict = {
             states_pl: states_feed,
-            actions_pl: actions_feed.ravel(),
+            actions_pl: actions_feed,
         }
         return feed_dict
 
@@ -271,12 +274,6 @@ class Pre(object):
     def get_input_shape(self):
         return Board.BOARD_SIZE, Board.BOARD_SIZE, Pre.NUM_CHANNELS
 
-    def _get_setting_str(self):
-        regex = r'dataset_\w+?(_\w+)?.txt'
-        matchObj = re.match(regex, Pre.DATA_SET_FILE, re.I)
-        ds_size = matchObj.group(1) if matchObj else ''
-        layers = 6
-        return ds_size + '_' + str(layers)
 
     def load_dataset(self, filename):
         proc = psutil.Process(os.getpid())
