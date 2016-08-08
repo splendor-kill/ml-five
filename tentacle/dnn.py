@@ -2,8 +2,8 @@ import collections
 import csv
 import gc
 import os
-import re
 import time
+import zipfile
 
 import psutil
 from scipy import ndimage
@@ -41,15 +41,18 @@ class Pre(object):
     NUM_STEPS = 10000000
     DATASET_CAPACITY = 200000
 
-    TRAIN_DIR = '/home/splendor/fusor/brain/'
-    SUMMARY_DIR = '/home/splendor/fusor/summary'
-    STAT_FILE = '/home/splendor/fusor/stat.npz'
-    MID_VIS_FILE = '/home/splendor/fusor/mid_vis.npz'
-    DATA_SET_FILE = 'dataset_merged_unique_dilated_train.txt'
-    DATA_SET_TRAIN = 'dataset_merged_unique_dilated_train.txt'
-    DATA_SET_VALID = 'dataset_merged_unique_dilated_valid.txt'
-    DATA_SET_TEST = 'dataset_merged_unique_dilated_test.txt'
-
+    WORK_DIR = '/home/splendor/superbowl'
+    BRAIN_DIR = os.path.join(WORK_DIR, 'brain')
+    BRAIN_CHECKPOINT_FILE = os.path.join(BRAIN_DIR, 'model.ckpt')
+    SUMMARY_DIR = os.path.join(WORK_DIR, 'summary')
+    STAT_FILE = os.path.join(WORK_DIR, 'stat.npz')
+    MID_VIS_FILE = os.path.join(WORK_DIR, 'mid_vis.npz')
+    DATA_SET_FILE = os.path.join(WORK_DIR, 'dataset', 'train.txt')
+    DATA_SET_TRAIN = os.path.join(WORK_DIR, 'dataset', 'train.txt')
+    DATA_SET_VALID = os.path.join(WORK_DIR, 'dataset', 'validation.txt')
+    DATA_SET_TEST = os.path.join(WORK_DIR, 'dataset', 'test.txt')
+    DATA_SET_ZIP_FILE = '/home/splendor/superbowl/dataset.zip'
+    BRAIN_ZIP_FILE = '/home/splendor/superbowl/brain.zip'
 
     def __init__(self, is_train=True, is_revive=False):
         self.is_train = is_train
@@ -154,7 +157,7 @@ class Pre(object):
         print('Initialized')
 
     def load_from_vat(self):
-        ckpt = tf.train.get_checkpoint_state(Pre.TRAIN_DIR)
+        ckpt = tf.train.get_checkpoint_state(Pre.BRAIN_DIR)
         if ckpt and ckpt.model_checkpoint_path:
             self.saver.restore(self.sess, ckpt.model_checkpoint_path)
 
@@ -204,7 +207,7 @@ class Pre(object):
                 self.summary_writer.flush()
 
             if (step + 1) % 1000 == 0 or (step + 1) == Pre.NUM_STEPS:
-                self.saver.save(self.sess, Pre.TRAIN_DIR + 'model.ckpt', global_step=self.gstep)
+                self.saver.save(self.sess, Pre.BRAIN_CHECKPOINT_FILE, global_step=self.gstep)
                 train_accuracy = self.do_eval(self.eval_correct, self.states_pl, self.actions_pl, self.ds.train)
                 validation_accuracy = self.do_eval(self.eval_correct, self.states_pl, self.actions_pl, self.ds.validation)
                 self.stat.append((self.gstep, train_accuracy, validation_accuracy, 0.))
@@ -367,8 +370,19 @@ class Pre(object):
 #                 if epoch >= 1:
 #                     break
 
+    def deploy(self):
+        with open(Pre.DATA_SET_ZIP_FILE, 'rb') as fh:
+            z = zipfile.ZipFile(fh)
+            for name in z.namelist():
+                z.extract(name, Pre.WORK_DIR)
+
+        with open(Pre.BRAIN_ZIP_FILE, 'rb') as fh:
+            z = zipfile.ZipFile(fh)
+            for name in z.namelist():
+                z.extract(name, Pre.WORK_DIR)
 
 if __name__ == '__main__':
     pre = Pre(is_revive=False)
+    pre.deploy()
     pre.run()
 

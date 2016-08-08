@@ -185,4 +185,5 @@ class DCNN2(Pre):
 
 if __name__ == '__main__':
     n = DCNN2(is_revive=True)
+    n.deploy()
     n.run()
