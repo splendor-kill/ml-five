@@ -47,10 +47,11 @@ class Pre(object):
     SUMMARY_DIR = os.path.join(WORK_DIR, 'summary')
     STAT_FILE = os.path.join(WORK_DIR, 'stat.npz')
     MID_VIS_FILE = os.path.join(WORK_DIR, 'mid_vis.npz')
-    DATA_SET_FILE = os.path.join(WORK_DIR, 'dataset', 'train.txt')
-    DATA_SET_TRAIN = os.path.join(WORK_DIR, 'dataset', 'train.txt')
-    DATA_SET_VALID = os.path.join(WORK_DIR, 'dataset', 'validation.txt')
-    DATA_SET_TEST = os.path.join(WORK_DIR, 'dataset', 'test.txt')
+    DATA_SET_DIR = os.path.join(WORK_DIR, 'dataset')
+    DATA_SET_FILE = os.path.join(DATA_SET_DIR, 'train.txt')
+    DATA_SET_TRAIN = os.path.join(DATA_SET_DIR, 'train.txt')
+    DATA_SET_VALID = os.path.join(DATA_SET_DIR, 'validation.txt')
+    DATA_SET_TEST = os.path.join(DATA_SET_DIR, 'test.txt')
     DATA_SET_ZIP_FILE = '/home/splendor/superbowl/dataset.zip'
     BRAIN_ZIP_FILE = '/home/splendor/superbowl/brain.zip'
 
@@ -371,15 +372,23 @@ class Pre(object):
 #                     break
 
     def deploy(self):
-        with open(Pre.DATA_SET_ZIP_FILE, 'rb') as fh:
-            z = zipfile.ZipFile(fh)
-            for name in z.namelist():
-                z.extract(name, Pre.WORK_DIR)
+        if os.path.exists(Pre.DATA_SET_DIR):
+            print('dataset dir exists')
+        else:
+            print('extract dataset...')
+            with open(Pre.DATA_SET_ZIP_FILE, 'rb') as fh:
+                z = zipfile.ZipFile(fh)
+                for name in z.namelist():
+                    z.extract(name, Pre.WORK_DIR)
 
-        with open(Pre.BRAIN_ZIP_FILE, 'rb') as fh:
-            z = zipfile.ZipFile(fh)
-            for name in z.namelist():
-                z.extract(name, Pre.WORK_DIR)
+        if os.path.exists(Pre.BRAIN_DIR):
+            print('brain dir exists')
+        else:
+            print('extract brain...')
+            with open(Pre.BRAIN_ZIP_FILE, 'rb') as fh:
+                z = zipfile.ZipFile(fh)
+                for name in z.namelist():
+                    z.extract(name, Pre.WORK_DIR)
 
 if __name__ == '__main__':
     pre = Pre(is_revive=False)
