@@ -45,10 +45,10 @@ class Pre(object):
     SUMMARY_DIR = '/home/splendor/fusor/summary'
     STAT_FILE = '/home/splendor/fusor/stat.npz'
     MID_VIS_FILE = '/home/splendor/fusor/mid_vis.npz'
-    DATA_SET_FILE = 'dataset_merged_unique_ge200w_train.txt'
-    DATA_SET_TRAIN = 'dataset_merged_unique_ge200w_train.txt'
-    DATA_SET_VALID = 'dataset_merged_unique_ge200w_valid.txt'
-    DATA_SET_TEST = 'dataset_merged_unique_ge200w_test.txt'
+    DATA_SET_FILE = 'dataset_merged_unique_dilated_train.txt'
+    DATA_SET_TRAIN = 'dataset_merged_unique_dilated_train.txt'
+    DATA_SET_VALID = 'dataset_merged_unique_dilated_valid.txt'
+    DATA_SET_TEST = 'dataset_merged_unique_dilated_test.txt'
 
 
     def __init__(self, is_train=True, is_revive=False):
