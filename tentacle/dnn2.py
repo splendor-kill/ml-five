@@ -91,27 +91,27 @@ class DCNN2(Pre):
         return image, win_rate
 
     def adapt(self, filename):
-        h, w, c = self.get_input_shape()   
+        h, w, c = self.get_input_shape()
         ds = []
         dat = self.load_dataset(filename)
         for row in dat:
             s, a = self.forge(row)
             ds.append((s, a))
         train = np.array(ds)
-        train = DataSet(np.vstack(train[:, 0]).reshape((-1, h, w, c)), np.vstack(train[:, 1]))    
-        
+        train = DataSet(np.vstack(train[:, 0]).reshape((-1, h, w, c)), np.vstack(train[:, 1]))
+
         if self.ds_valid is None:
             ds = []
-            dat = self._load_ds(Pre.DATA_SET_VALID)
+            dat = self._load_ds(Pre.DATA_SET_VALID, Pre.DATASET_CAPACITY)
             for row in dat:
                 s, a = self.forge(row)
                 ds.append((s, a))
             ds = np.array(ds)
-            self.ds_valid = DataSet(np.vstack(ds[:, 0]).reshape((-1, h, w, c)), np.vstack(ds[:, 1]))    
-        
+            self.ds_valid = DataSet(np.vstack(ds[:, 0]).reshape((-1, h, w, c)), np.vstack(ds[:, 1]))
+
         if self.ds_test is None:
             ds = []
-            dat = self._load_ds(Pre.DATA_SET_TEST)
+            dat = self._load_ds(Pre.DATA_SET_TEST, Pre.DATASET_CAPACITY)
             for row in dat:
                 s, a = self.forge(row)
                 ds.append((s, a))
@@ -125,12 +125,13 @@ class DCNN2(Pre):
         self.ds = Datasets(train=train, validation=self.ds_valid, test=self.ds_test)
 
 
-    def _load_ds(self, filename):
+    def _load_ds(self, filename, capacity):
         content = []
         with open(filename) as csvfile:
             reader = csv.reader(csvfile)
-            for line in reader:
-                content.append([float(i) for i in line])
+            for index, line in enumerate(reader):
+                if index < capacity:
+                    content.append([float(i) for i in line])
         content = np.array(content)
         np.random.shuffle(content)
         print('load data:', content.shape)
@@ -166,7 +167,7 @@ class DCNN2(Pre):
         content = np.array(content)
         print('load data:', content.shape)
         return content
-    
+
 
     def adapt_state(self, board):
         board = board.reshape(-1, Board.BOARD_SIZE)
@@ -183,5 +184,5 @@ class DCNN2(Pre):
 
 
 if __name__ == '__main__':
-    n = DCNN2(is_revive=False)
+    n = DCNN2(is_revive=True)
     n.run()
