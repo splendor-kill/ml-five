@@ -41,7 +41,7 @@ class Pre(object):
     NUM_STEPS = 10000000
     DATASET_CAPACITY = 200000
 
-    WORK_DIR = '/home/splendor/superbowl'
+    WORK_DIR = '/home/splendor/fusor'
     BRAIN_DIR = os.path.join(WORK_DIR, 'brain')
     BRAIN_CHECKPOINT_FILE = os.path.join(BRAIN_DIR, 'model.ckpt')
     SUMMARY_DIR = os.path.join(WORK_DIR, 'summary')
@@ -52,8 +52,8 @@ class Pre(object):
     DATA_SET_TRAIN = os.path.join(DATA_SET_DIR, 'train.txt')
     DATA_SET_VALID = os.path.join(DATA_SET_DIR, 'validation.txt')
     DATA_SET_TEST = os.path.join(DATA_SET_DIR, 'test.txt')
-    DATA_SET_ZIP_FILE = '/home/splendor/superbowl/dataset.zip'
-    BRAIN_ZIP_FILE = '/home/splendor/superbowl/brain.zip'
+    DATA_SET_ZIP_FILE = '/home/splendor/fusor/dataset.zip'
+    BRAIN_ZIP_FILE = '/home/splendor/fusor/brain.zip'
 
     def __init__(self, is_train=True, is_revive=False):
         self.is_train = is_train
@@ -66,6 +66,7 @@ class Pre(object):
         self.stat = []
         self.acc_vs_size = []
         self.gap = 0
+        self.sparse_labels = False
 
     def placeholder_inputs(self):
         h, w, c = self.get_input_shape()
@@ -133,6 +134,7 @@ class Pre(object):
         self.hidden = tf.nn.relu(tf.matmul(h_conv_out, W_3) + b_3)
         predictions = tf.matmul(self.hidden, W_4) + b_4
 
+        self.sparse_labels = True
         cross_entropy = tf.nn.sparse_softmax_cross_entropy_with_logits(predictions, actions_pl)
         self.loss = tf.reduce_mean(cross_entropy)
         tf.scalar_summary("loss", self.loss)
@@ -165,9 +167,11 @@ class Pre(object):
     def fill_feed_dict(self, data_set, states_pl, actions_pl, batch_size=None):
         batch_size = batch_size or Pre.BATCH_SIZE
         states_feed, actions_feed = data_set.next_batch(batch_size)
+        if self.sparse_labels:
+            actions_feed = actions_feed.ravel()
         feed_dict = {
             states_pl: states_feed,
-            actions_pl: actions_feed,
+            actions_pl: actions_feed
         }
         return feed_dict
 
@@ -391,7 +395,7 @@ class Pre(object):
                     z.extract(name, Pre.WORK_DIR)
 
 if __name__ == '__main__':
-    pre = Pre(is_revive=False)
+    pre = Pre(is_revive=True)
     pre.deploy()
     pre.run()
 

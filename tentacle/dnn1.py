@@ -57,6 +57,7 @@ class DCNN1(Pre):
         self.hidden = tf.nn.softplus(tf.matmul(h_conv_out, W_3) + b_3)
         predictions = tf.matmul(self.hidden, W_4) + b_4
 
+        self.sparse_labels = True
         cross_entropy = tf.nn.sparse_softmax_cross_entropy_with_logits(predictions, actions_pl)
         self.loss = tf.reduce_mean(cross_entropy)
         tf.scalar_summary("loss", self.loss)
