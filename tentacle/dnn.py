@@ -14,8 +14,6 @@ from tentacle.board import Board
 from tentacle.data_set import DataSet
 
 
-Datasets = collections.namedtuple('Dataset', ['train', 'validation', 'test'])
-
 class RingBuffer():
     "A 1D ring buffer using numpy arrays"
     def __init__(self, length):
@@ -37,9 +35,9 @@ class Pre(object):
     NUM_CHANNELS = 3
 
     BATCH_SIZE = 32
-    LEARNING_RATE = 0.01
+    LEARNING_RATE = 0.001
     NUM_STEPS = 10000000
-    DATASET_CAPACITY = 200000
+    DATASET_CAPACITY = 32 * 8000
 
     WORK_DIR = '/home/splendor/fusor'
     BRAIN_DIR = os.path.join(WORK_DIR, 'brain')
@@ -49,9 +47,9 @@ class Pre(object):
     MID_VIS_FILE = os.path.join(WORK_DIR, 'mid_vis.npz')
     DATA_SET_DIR = os.path.join(WORK_DIR, 'dataset')
     DATA_SET_FILE = os.path.join(DATA_SET_DIR, 'train.txt')
-    DATA_SET_TRAIN = os.path.join(DATA_SET_DIR, 'train.txt')
-    DATA_SET_VALID = os.path.join(DATA_SET_DIR, 'validation.txt')
-    DATA_SET_TEST = os.path.join(DATA_SET_DIR, 'test.txt')
+    DATA_SET_TRAIN = os.path.join(DATA_SET_DIR, 'train_part.txt')
+    DATA_SET_VALID = os.path.join(DATA_SET_DIR, 'validation_part.txt')
+    DATA_SET_TEST = os.path.join(DATA_SET_DIR, 'test_part.txt')
     DATA_SET_ZIP_FILE = '/home/splendor/fusor/dataset.zip'
     BRAIN_ZIP_FILE = '/home/splendor/fusor/brain.zip'
 
@@ -60,9 +58,11 @@ class Pre(object):
         self.is_revive = is_revive
         self._file_read_index = 0
         self._has_more_data = True
-        self.ds = None
         self.gstep = 0
-#         self.loss_window = RingBuffer(10)
+        self.ds_train = None
+        self.ds_valid = None
+        self.ds_test = None
+        self.loss_window = RingBuffer(10)
         self.stat = []
         self.acc_vs_size = []
         self.gap = 0
@@ -163,6 +163,7 @@ class Pre(object):
         ckpt = tf.train.get_checkpoint_state(Pre.BRAIN_DIR)
         if ckpt and ckpt.model_checkpoint_path:
             self.saver.restore(self.sess, ckpt.model_checkpoint_path)
+            self.gstep = int(ckpt.model_checkpoint_path.rsplit('-', 1)[1])
 
     def fill_feed_dict(self, data_set, states_pl, actions_pl, batch_size=None):
         batch_size = batch_size or Pre.BATCH_SIZE
@@ -195,42 +196,42 @@ class Pre(object):
         return self.sess.run(self.predict_probs, feed_dict=feed_dict)
 
     def train(self, ith_part):
-        Pre.NUM_STEPS = self.ds.train.num_examples // Pre.BATCH_SIZE
-        print('total num steps: ', Pre.NUM_STEPS)
+        Pre.NUM_STEPS = self.ds_train.num_examples // Pre.BATCH_SIZE
+        print('total num steps:', Pre.NUM_STEPS)
         start_time = time.time()
         train_accuracy = 0
         validation_accuracy = 0
         for step in range(Pre.NUM_STEPS):
-            feed_dict = self.fill_feed_dict(self.ds.train, self.states_pl, self.actions_pl)
+            feed_dict = self.fill_feed_dict(self.ds_train, self.states_pl, self.actions_pl)
             _, loss = self.sess.run([self.optimizer, self.loss], feed_dict=feed_dict)
-#             self.loss_window.extend(loss)
+            self.loss_window.extend(loss)
             self.gstep += 1
             step += 1
-            if (step % 100 == 0):
+            if (step % 1000 == 0):
                 summary_str = self.sess.run(self.summary_op, feed_dict=feed_dict)
                 self.summary_writer.add_summary(summary_str, self.gstep)
                 self.summary_writer.flush()
 
-            if (step + 1) % 1000 == 0 or (step + 1) == Pre.NUM_STEPS:
+            if step + 1 == Pre.NUM_STEPS:
                 self.saver.save(self.sess, Pre.BRAIN_CHECKPOINT_FILE, global_step=self.gstep)
-                train_accuracy = self.do_eval(self.eval_correct, self.states_pl, self.actions_pl, self.ds.train)
-                validation_accuracy = self.do_eval(self.eval_correct, self.states_pl, self.actions_pl, self.ds.validation)
+                train_accuracy = self.do_eval(self.eval_correct, self.states_pl, self.actions_pl, self.ds_train)
+                validation_accuracy = self.do_eval(self.eval_correct, self.states_pl, self.actions_pl, self.ds_valid)
                 self.stat.append((self.gstep, train_accuracy, validation_accuracy, 0.))
                 self.gap = train_accuracy - validation_accuracy
 #                 if self.gap > 0.1:
-#                     print('deverge at: ', step + 1)
+#                     print('deverge at:', step + 1)
 #                     break
-            if step == 11:
-                self.mid_vis(feed_dict)
+#             if step == 11:
+#                 self.mid_vis(feed_dict)
 
         duration = time.time() - start_time
-        test_accuracy = self.do_eval(self.eval_correct, self.states_pl, self.actions_pl, self.ds.test)
+        test_accuracy = self.do_eval(self.eval_correct, self.states_pl, self.actions_pl, self.ds_test)
         print('part: %d, acc_train: %.3f, acc_valid: %.3f, test accuracy: %.3f, time cost: %.3f sec' %
               (ith_part, train_accuracy, validation_accuracy, test_accuracy, duration))
         self.acc_vs_size.append((ith_part * Pre.NUM_STEPS * Pre.BATCH_SIZE, train_accuracy, validation_accuracy, test_accuracy))
 
-        J_train = 0  # self.test_against_size(self.ds.train)
-        J_cv = 0  # self.test_against_size(self.ds.validation)
+        J_train = 0  # self.test_against_size(self.ds_train)
+        J_cv = 0  # self.test_against_size(self.ds_valid)
         np.savez(Pre.STAT_FILE, stat=np.array(self.stat), J_train=J_train, J_cv=J_cv, vs_size=self.acc_vs_size)
 
     def mid_vis(self, feed_dict):
@@ -276,7 +277,9 @@ class Pre(object):
         print(validation.images.shape, validation.labels.shape)
         print(test.images.shape, test.labels.shape)
 
-        self.ds = Datasets(train=train, validation=validation, test=test)
+        self.ds_train = train
+        self.ds_valid = validation
+        self.ds_test = test
 
 
     def get_input_shape(self):
@@ -288,11 +291,13 @@ class Pre(object):
         gc.collect()
         mem0 = proc.memory_info().rss
 
-        del self.ds
+        del self.ds_train
+        del self.ds_valid
+        del self.ds_test
         gc.collect()
 
         mem1 = proc.memory_info().rss
-        print('gc(M): ', (mem1 - mem0) / 1024 ** 2)
+        print('gc(M):', (mem1 - mem0) / 1024 ** 2)
 
         content = []
         with open(filename) as csvfile:
@@ -356,9 +361,10 @@ class Pre(object):
 
         if self.is_train:
             epoch = 0
-#             while self.loss_window.get_average() == 0.0 or self.loss_window.get_average() > 0.1:
-            while self.gap < 0.1:
-                print('epoch: ', epoch)
+            while self.loss_window.get_average() == 0.0 or self.loss_window.get_average() > 0.1:
+#             while self.gap < 0.1:
+
+                print('epoch:', epoch)
                 epoch += 1
 
                 ith_part = 0
