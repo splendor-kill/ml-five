@@ -1,4 +1,3 @@
-import csv
 import gc
 import os
 
@@ -8,14 +7,16 @@ import numpy as np
 import tensorflow as tf
 from tentacle.board import Board
 from tentacle.data_set import DataSet
-from tentacle.dnn import Pre, Datasets
+from tentacle.dnn import Pre
+from tentacle.ds_loader import DatasetLoader
 
 
 class DCNN2(Pre):
     def __init__(self, is_train=True, is_revive=False):
-        super().__init__(is_train, is_revive)
-        self.ds_valid = None
-        self.ds_test = None
+        super(DCNN2, self).__init__(is_train, is_revive)
+        self.loader_train = DatasetLoader(Pre.DATA_SET_TRAIN)
+        self.loader_valid = DatasetLoader(Pre.DATA_SET_VALID)
+        self.loader_test = DatasetLoader(Pre.DATA_SET_TEST)
 
     def diags(self, a):
         assert len(a.shape) == 2 and a.shape[0] == a.shape[1]
@@ -72,7 +73,7 @@ class DCNN2(Pre):
         cross_entropy = tf.nn.softmax_cross_entropy_with_logits(predictions, actions_pl)
         self.loss = tf.reduce_mean(cross_entropy)
         tf.scalar_summary("loss", self.loss)
-        self.optimizer = tf.train.GradientDescentOptimizer(Pre.LEARNING_RATE).minimize(self.loss)
+        self.optimizer = tf.train.AdamOptimizer().minimize(self.loss)
 
         self.predict_probs = tf.nn.softmax(predictions)
         eq = tf.equal(tf.argmax(self.predict_probs, 1), tf.argmax(actions_pl, 1))
@@ -91,82 +92,45 @@ class DCNN2(Pre):
         return image, win_rate
 
     def adapt(self, filename):
-        h, w, c = self.get_input_shape()
-        ds = []
-        dat = self.load_dataset(filename)
-        for row in dat:
-            s, a = self.forge(row)
-            ds.append((s, a))
-        train = np.array(ds)
-        train = DataSet(np.vstack(train[:, 0]).reshape((-1, h, w, c)), np.vstack(train[:, 1]))
-
-        if self.ds_valid is None:
-            ds = []
-            dat = self._load_ds(Pre.DATA_SET_VALID, Pre.DATASET_CAPACITY)
-            for row in dat:
-                s, a = self.forge(row)
-                ds.append((s, a))
-            ds = np.array(ds)
-            self.ds_valid = DataSet(np.vstack(ds[:, 0]).reshape((-1, h, w, c)), np.vstack(ds[:, 1]))
-
-        if self.ds_test is None:
-            ds = []
-            dat = self._load_ds(Pre.DATA_SET_TEST, Pre.DATASET_CAPACITY)
-            for row in dat:
-                s, a = self.forge(row)
-                ds.append((s, a))
-            ds = np.array(ds)
-            self.ds_test = DataSet(np.vstack(ds[:, 0]).reshape((-1, h, w, c)), np.vstack(ds[:, 1]))
-
-        print(train.images.shape, train.labels.shape)
-        print(self.ds_valid.images.shape, self.ds_valid.labels.shape)
-        print(self.ds_test.images.shape, self.ds_test.labels.shape)
-
-        self.ds = Datasets(train=train, validation=self.ds_valid, test=self.ds_test)
-
-
-    def _load_ds(self, filename, capacity):
-        content = []
-        with open(filename) as csvfile:
-            reader = csv.reader(csvfile)
-            for index, line in enumerate(reader):
-                if index < capacity:
-                    content.append([float(i) for i in line])
-        content = np.array(content)
-        np.random.shuffle(content)
-        print('load data:', content.shape)
-        return content
-
-
-    def load_dataset(self, filename):
         proc = psutil.Process(os.getpid())
         gc.collect()
         mem0 = proc.memory_info().rss
 
-        del self.ds
+        if self.ds_train is not None and not self.loader_train.is_wane:
+            self.ds_train = None
+        if self.ds_valid is not None and not self.loader_valid.is_wane:
+            self.ds_valid = None
+        if self.ds_test is not None and not self.loader_test.is_wane:
+            self.ds_test = None
+
         gc.collect()
 
         mem1 = proc.memory_info().rss
-        print('gc(M): ', (mem1 - mem0) / 1024 ** 2)
+        print('gc(M):', (mem1 - mem0) / 1024 ** 2)
 
-        content = []
-        with open(filename) as csvfile:
-            reader = csv.reader(csvfile)
-            for index, line in enumerate(reader):
-                if index >= self._file_read_index:
-                    if index < self._file_read_index + Pre.DATASET_CAPACITY:
-                        content.append([float(i) for i in line])
-                    else:
-                        break
-            if index == self._file_read_index + Pre.DATASET_CAPACITY:
-                self._has_more_data = True
-                self._file_read_index += Pre.DATASET_CAPACITY
-            else:
-                self._has_more_data = False
+        h, w, c = self.get_input_shape()
 
-        content = np.array(content)
-        print('load data:', content.shape)
-        return content
+        def f(dat):
+            ds = []
+            for row in dat:
+                s, a = self.forge(row)
+                ds.append((s, a))
+            ds = np.array(ds)
+            return DataSet(np.vstack(ds[:, 0]).reshape((-1, h, w, c)), np.vstack(ds[:, 1]))
+
+        if self.ds_train is None:
+            ds_train, self._has_more_data = self.loader_train.load(Pre.DATASET_CAPACITY)
+            self.ds_train = f(ds_train)
+        if self.ds_valid is None:
+            ds_valid, _ = self.loader_valid.load(Pre.DATASET_CAPACITY // 2)
+            self.ds_valid = f(ds_valid)
+        if self.ds_test is None:
+            ds_test, _ = self.loader_test.load(Pre.DATASET_CAPACITY // 2)
+            self.ds_test = f(ds_test)
+
+        print(self.ds_train.images.shape, self.ds_train.labels.shape)
+        print(self.ds_valid.images.shape, self.ds_valid.labels.shape)
+        print(self.ds_test.images.shape, self.ds_test.labels.shape)
 
 
     def adapt_state(self, board):
@@ -184,6 +148,9 @@ class DCNN2(Pre):
 
 
 if __name__ == '__main__':
-    n = DCNN2(is_revive=True)
+    n = DCNN2(is_revive=False)
     n.deploy()
     n.run()
+
+
+
