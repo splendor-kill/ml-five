@@ -3,12 +3,15 @@ import random
 import numpy as np
 from tentacle.board import Board
 from tentacle.dnn import Pre
+from tentacle.dnn2 import DCNN2
 from tentacle.strategy import Strategy
+
 
 class StrategyDNN(Strategy):
     def __init__(self):
         super().__init__()
-        self.brain = Pre(is_train=False, is_revive=True)
+#         self.brain = Pre(is_train=False, is_revive=True)
+        self.brain = DCNN2(is_train=False, is_revive=True)
         self.brain.run()
 
     def update_at_end(self, old, new):
@@ -37,7 +40,7 @@ class StrategyDNN(Strategy):
         legal_prob = np.ma.masked_where(legal, probs)
         best_move = np.argmax(legal_prob, axis=1)
 
-        loc = divmod(best_move[0], Board.BOARD_SIZE)
+        loc = np.unravel_index(best_move[0], (Board.BOARD_SIZE, Board.BOARD_SIZE))
 #         print('predict move here: %s' % (loc,))
         try:
             if v[best_move] == Board.STONE_EMPTY:
@@ -52,7 +55,8 @@ class StrategyDNN(Strategy):
             return random.choice(moves)
 
     def get_input_values(self, board):
-        state, legal = self.brain.adapt_state(board)
+        state, _ = self.brain.adapt_state(board)
+        legal = (board == Board.STONE_EMPTY)
         return state, legal
 
     def save(self, file):
