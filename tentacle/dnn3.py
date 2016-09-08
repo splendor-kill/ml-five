@@ -11,29 +11,12 @@ from tentacle.dnn import Pre
 from tentacle.ds_loader import DatasetLoader
 
 
-class DCNN2(Pre):
+class DCNN3(Pre):
     def __init__(self, is_train=True, is_revive=False):
-        super(DCNN2, self).__init__(is_train, is_revive)
+        super(DCNN3, self).__init__(is_train, is_revive)
         self.loader_train = DatasetLoader(Pre.DATA_SET_TRAIN)
         self.loader_valid = DatasetLoader(Pre.DATA_SET_VALID)
         self.loader_test = DatasetLoader(Pre.DATA_SET_TEST)
-
-    def diags(self, a):
-        assert len(a.shape) == 2 and a.shape[0] == a.shape[1]
-        valid = a.shape[0] - 5
-
-        vecs = [a.diagonal(i) for i in range(-valid, valid + 1)]
-        c = np.zeros((len(vecs), a.shape[0]))
-        c[:, :] = -1
-        for i, v in enumerate(vecs):
-            c[i, :v.shape[0]] = v
-        return c
-
-    def regulate(self, a):
-        md = self.diags(a)
-        ad = self.diags(np.rot90(a))
-        m = np.vstack((a, a.T, md, ad))
-        return m
 
     def placeholder_inputs(self):
         h, w, c = self.get_input_shape()
@@ -43,7 +26,7 @@ class DCNN2(Pre):
 
     def model(self, states_pl, actions_pl):
         ch1 = 32
-        W_1 = self.weight_variable([1, 5, Pre.NUM_CHANNELS, ch1])
+        W_1 = self.weight_variable([3, 3, Pre.NUM_CHANNELS, ch1])
         b_1 = self.bias_variable([ch1])
 
         ch = 32
@@ -51,14 +34,18 @@ class DCNN2(Pre):
         b_2 = self.bias_variable([ch])
         W_21 = self.weight_variable([3, 3, ch, ch])
         b_21 = self.bias_variable([ch])
+        W_22 = self.weight_variable([3, 3, ch, ch])
+        b_22 = self.bias_variable([ch])
 
-        self.h_conv1 = tf.nn.relu(tf.nn.conv2d(states_pl, W_1, [1, 1, 1, 1], padding='VALID') + b_1)
+
+        self.h_conv1 = tf.nn.relu(tf.nn.conv2d(states_pl, W_1, [1, 1, 1, 1], padding='SAME') + b_1)
         self.h_conv2 = tf.nn.relu(tf.nn.conv2d(self.h_conv1, W_2, [1, 1, 1, 1], padding='SAME') + b_2)
-        self.h_conv21 = tf.nn.relu(tf.nn.conv2d(self.h_conv2, W_21, [1, 1, 1, 1], padding='SAME') + b_21)
+        h_conv21 = tf.nn.relu(tf.nn.conv2d(self.h_conv2, W_21, [1, 1, 1, 1], padding='SAME') + b_21)
+        h_conv22 = tf.nn.relu(tf.nn.conv2d(h_conv21, W_22, [1, 1, 1, 1], padding='SAME') + b_22)
 
-        shape = self.h_conv21.get_shape().as_list()
+        shape = h_conv22.get_shape().as_list()        
         dim = np.cumprod(shape[1:])[-1]
-        h_conv_out = tf.reshape(self.h_conv21, [-1, dim])
+        h_conv_out = tf.reshape(h_conv22, [-1, dim])
 
         num_hidden = 128
         W_3 = self.weight_variable([dim, num_hidden])
@@ -66,7 +53,7 @@ class DCNN2(Pre):
         W_4 = self.weight_variable([num_hidden, Pre.NUM_ACTIONS])
         b_4 = self.bias_variable([Pre.NUM_ACTIONS])
 
-        self.hidden = tf.matmul(h_conv_out, W_3) + b_3
+        self.hidden = tf.nn.relu(tf.matmul(h_conv_out, W_3) + b_3)
         predictions = tf.matmul(self.hidden, W_4) + b_4
 
         cross_entropy = tf.nn.softmax_cross_entropy_with_logits(predictions, actions_pl)
@@ -75,7 +62,12 @@ class DCNN2(Pre):
         self.optimizer = tf.train.AdamOptimizer().minimize(self.loss)
 
         self.predict_probs = tf.nn.softmax(predictions)
+        
         eq = tf.equal(tf.argmax(self.predict_probs, 1), tf.argmax(actions_pl, 1))
+
+#         best_move = tf.argmax(actions_pl, 1)
+#         eq = tf.nn.in_top_k(self.predict_probs, best_move, 3)
+
         self.eval_correct = tf.reduce_sum(tf.cast(eq, tf.int32))
 
     def forge(self, row):
@@ -132,22 +124,15 @@ class DCNN2(Pre):
         print(self.ds_test.images.shape, self.ds_test.labels.shape)
 
 
-    def adapt_state(self, board):
-        board = board.reshape(-1, Board.BOARD_SIZE)
-        board = self.regulate(board)
-        return super(DCNN2, self).adapt_state(board)
-
     def get_input_shape(self):
-        assert Board.BOARD_SIZE >= 5
-        height = 6 * Board.BOARD_SIZE - 18  # row vecs + col vecs + valid(len>=5) main diag vecs + valid(len>=5) anti diag vecs
-        return height, Board.BOARD_SIZE, Pre.NUM_CHANNELS
+        return Board.BOARD_SIZE, Board.BOARD_SIZE, Pre.NUM_CHANNELS
 
     def mid_vis(self, feed_dict):
         pass
 
 
 if __name__ == '__main__':
-    n = DCNN2(is_revive=False)
+    n = DCNN3(is_revive=False)
     n.deploy()
     n.run()
 

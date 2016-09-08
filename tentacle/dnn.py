@@ -45,11 +45,11 @@ class Pre(object):
     SUMMARY_DIR = os.path.join(WORK_DIR, 'summary')
     STAT_FILE = os.path.join(WORK_DIR, 'stat.npz')
     MID_VIS_FILE = os.path.join(WORK_DIR, 'mid_vis.npz')
-    DATA_SET_DIR = os.path.join(WORK_DIR, 'dataset')
+    DATA_SET_DIR = os.path.join(WORK_DIR, 'dataset_gomocup9')
     DATA_SET_FILE = os.path.join(DATA_SET_DIR, 'train.txt')
-    DATA_SET_TRAIN = os.path.join(DATA_SET_DIR, 'train_part.txt')
-    DATA_SET_VALID = os.path.join(DATA_SET_DIR, 'validation_part.txt')
-    DATA_SET_TEST = os.path.join(DATA_SET_DIR, 'test_part.txt')
+    DATA_SET_TRAIN = os.path.join(DATA_SET_DIR, 'train.txt')
+    DATA_SET_VALID = os.path.join(DATA_SET_DIR, 'validation.txt')
+    DATA_SET_TEST = os.path.join(DATA_SET_DIR, 'test.txt')
     DATA_SET_ZIP_FILE = '/home/splendor/fusor/dataset.zip'
     BRAIN_ZIP_FILE = '/home/splendor/fusor/brain.zip'
 
@@ -191,7 +191,7 @@ class Pre(object):
         h, w, c = self.get_input_shape()
         feed_dict = {
             self.states_pl: state.reshape(1, -1).reshape((-1, h, w, c)),
-            self.actions_pl: np.zeros(1)
+#             self.actions_pl: np.zeros(1)
         }
         return self.sess.run(self.predict_probs, feed_dict=feed_dict)
 
@@ -335,6 +335,12 @@ class Pre(object):
         black = (board == Board.STONE_BLACK).astype(float)
         white = (board == Board.STONE_WHITE).astype(float)
         empty = (board == Board.STONE_EMPTY).astype(float)
+
+        # switch perspective
+        bn = np.count_nonzero(black)
+        wn = np.count_nonzero(white)
+        if bn != wn:  # if it is white turn, swith it
+            black, white = white, black
 
         image = np.dstack((black, white, empty)).ravel()
         legal = empty.astype(bool)

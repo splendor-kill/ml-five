@@ -154,8 +154,10 @@ class Gui(object):
 #         self.strategy_2 = s2
 
         strategy = self.which_one(Board.oppo(which_side_human_play))
+        if strategy is None or isinstance(strategy, StrategyRand):
+            strategy = self.which_one(which_side_human_play)
         if strategy is None:
-            print('play with a brainy opponent')
+            print('without opponent')
             return
 
         old_is_learning, old_stand_for = strategy.is_learning, strategy.stand_for
