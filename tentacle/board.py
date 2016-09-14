@@ -25,11 +25,14 @@ class Board(object):
     WIN_PATTERN = {STONE_BLACK: np.ones(WIN_STONE_NUM, dtype=int) * STONE_BLACK,
                    STONE_WHITE: np.ones(WIN_STONE_NUM, dtype=int) * STONE_WHITE}
 
-    def __init__(self):
+    def __init__(self, board_size=9):
+        Board.BOARD_SIZE = board_size
+        Board.BOARD_SIZE_SQ = Board.BOARD_SIZE ** 2
+
         self.stones = np.zeros(Board.BOARD_SIZE_SQ, np.int)
 #         self.stones = np.random.rand(N, N)
         self.over = False
-        self.winner = Board.STONE_EMPTY        
+        self.winner = Board.STONE_EMPTY
         self.exploration = False
 
     @staticmethod
@@ -42,13 +45,13 @@ class Board(object):
             m[0:white] = Board.STONE_WHITE
             m[white:white * 2] = Board.STONE_BLACK
             m[white * 2] = np.random.randint(1)
-           
+
             np.random.shuffle(m)
-            
-            m2 = m.reshape(-1, Board.BOARD_SIZE)            
+
+            m2 = m.reshape(-1, Board.BOARD_SIZE)
             if not Board.find_conn_5_all(m2):
                 return b
-            
+
 
     def show(self):
         fig = plt.figure()
@@ -77,7 +80,10 @@ class Board(object):
         if grid[x, y] != 0:
             raise Exception('cannot move here')
         grid[x, y] = v
-        
+
+    def get(self, x, y):
+        return self.stones[x * Board.BOARD_SIZE + y]
+
     def is_legal(self, x, y):
         """
             :type pos tuple(x, y)
@@ -91,7 +97,7 @@ class Board(object):
         if who == Board.STONE_WHITE:
             return Board.STONE_BLACK
         raise Exception('illegal arg who[%d]' % (who))
-    
+
     @staticmethod
     def change(old, new):
         d = np.nonzero(new.stones - old.stones)
@@ -149,8 +155,8 @@ class Board(object):
             if occur.size != 0:
                 return True
         return False
-    
-    
+
+
     @staticmethod
     def find_conn_5_all(board):
         lines = []
@@ -170,7 +176,7 @@ class Board(object):
             occur = Board._find_subseq(v, Board.WIN_PATTERN[Board.STONE_WHITE])
             if occur.size != 0:
                 return True
-            
+
         return False
 
     def is_over(self, old_board):
@@ -221,7 +227,7 @@ class Board(object):
             return True, Board.STONE_EMPTY, loc
 
         return False, None, loc
-    
+
     def __str__(self):
 #         grid = self.stones.reshape(-1, Board.BOARD_SIZE)
         return str(self.stones)
