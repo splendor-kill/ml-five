@@ -116,6 +116,8 @@ class Gui(object):
             self.vs_human(Board.STONE_WHITE)
         elif event.key == 'f1':
             pass
+        elif event.key == 'm':
+            self.match()
 
         self.fig.canvas.draw()
 
@@ -208,12 +210,12 @@ class Gui(object):
         s3 = StrategyRand()
 
         probs = [0, 0, 0, 0, 0, 0]
-        games = 10  # 30
+        games = 3  # 30
         for i in range(games):
             # the learner s1 move first(use black)
             s1.stand_for = Board.STONE_BLACK
             s2.stand_for = Board.STONE_WHITE
-            g = Game(Board.rand_generate_a_position(), s1, s2)
+            g = Game(Board(), s1, s2)
             g.step_to_end()
             if g.winner == Board.STONE_BLACK:
                 probs[0] += 1
@@ -223,7 +225,7 @@ class Gui(object):
             # the learner s1 move second(use white)
             s1.stand_for = Board.STONE_WHITE
             s2.stand_for = Board.STONE_BLACK
-            g = Game(Board.rand_generate_a_position(), s1, s2)
+            g = Game(Board(), s1, s2)
             g.step_to_end()
             if g.winner == Board.STONE_WHITE:
                 probs[2] += 1
@@ -233,7 +235,7 @@ class Gui(object):
             # the learner s1 move first vs. random opponent
             s1.stand_for = Board.STONE_BLACK
             s3.stand_for = Board.STONE_WHITE
-            g = Game(Board.rand_generate_a_position(), s1, s3)
+            g = Game(Board(), s1, s3)
             g.step_to_end()
             if g.winner == Board.STONE_BLACK:
                 probs[4] += 1
@@ -241,13 +243,13 @@ class Gui(object):
             # the learner s1 move second vs. random opponent
             s1.stand_for = Board.STONE_WHITE
             s3.stand_for = Board.STONE_BLACK
-            g = Game(Board.rand_generate_a_position(), s1, s3)
+            g = Game(Board(), s1, s3)
             g.step_to_end()
             if g.winner == Board.STONE_WHITE:
                 probs[5] += 1
 
         probs = [i / games for i in probs]
-#         print(probs)
+        print(probs)
 
         s1.epsilon, s1.is_learning, s1.stand_for = old_epsilon1, old_is_learning1, old_stand_for1
 #         s2.epsilon, s2.is_learning, s2.stand_for = old_epsilon2, old_is_learning2, old_stand_for2
@@ -310,6 +312,41 @@ class Gui(object):
         self.strategy_2 = s2
 
         return s1, s2
+
+
+    def match(self):
+        s1, s2 = self.strategy_1, self.strategy_2
+        print('player1:', s1.__class__.__name__)
+        print('player2:', s2.__class__.__name__)
+
+        probs = np.zeros(6)
+        games = 100  # 30
+        for i in range(games):
+            print(i)
+            s1.stand_for = Board.STONE_BLACK
+            s2.stand_for = Board.STONE_WHITE
+            g = Game(Board.rand_generate_a_position(), s1, s2)
+            g.step_to_end()
+            if g.winner == Board.STONE_BLACK:
+                probs[0] += 1
+            elif g.winner == Board.STONE_WHITE:
+                probs[1] += 1
+            else:
+                probs[2] += 1
+
+            s1.stand_for = Board.STONE_WHITE
+            s2.stand_for = Board.STONE_BLACK
+            g = Game(Board.rand_generate_a_position(), s1, s2)
+            g.step_to_end()
+            if g.winner == Board.STONE_WHITE:
+                probs[3] += 1
+            elif g.winner == Board.STONE_BLACK:
+                probs[4] += 1
+            else:
+                probs[5] += 1
+
+        print('total play:', games)
+        print(probs)
 
 
     def train1(self, s1, s2):

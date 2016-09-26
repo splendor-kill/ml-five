@@ -40,8 +40,8 @@ class Board(object):
         while True:
             b = Board()
             m = b.stones
-            most = m.size // 2
-            white = np.random.randint(most)
+            most = 2  # m.size // 2
+            white = np.random.randint(1, most)
             m[0:white] = Board.STONE_WHITE
             m[white:white * 2] = Board.STONE_BLACK
             m[white * 2] = np.random.randint(1)
@@ -83,6 +83,18 @@ class Board(object):
 
     def get(self, x, y):
         return self.stones[x * Board.BOARD_SIZE + y]
+
+    def is_empty(self):
+        np.all(self.stones == 0)
+
+    def query_stand_for(self, who_first):
+        stat = np.bincount(self.stones, minlength=3)
+        op = Board.oppo(who_first)
+
+        if  stat[who_first] == stat[op]:
+            return who_first
+        if  stat[who_first] > stat[op]:
+            return op
 
     def is_legal(self, x, y):
         """
