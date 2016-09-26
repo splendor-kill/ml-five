@@ -27,6 +27,19 @@ class StrategyDNN(Strategy):
     def board_value(self, board, context):
         pass
 
+    def preferred_move(self, board):
+        v = board.stones
+
+        state, legal = self.get_input_values(v)
+        probs = self.brain.get_move_probs(state)
+
+        legal = np.logical_not(legal).reshape(1, -1)
+        legal_prob = np.ma.masked_where(legal, probs)
+        best_move = np.argmax(legal_prob, axis=1)
+
+        return np.unravel_index(best_move[0], (Board.BOARD_SIZE, Board.BOARD_SIZE))
+
+
     def preferred_board(self, old, moves, context):
         if not moves:
             return old

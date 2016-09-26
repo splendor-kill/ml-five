@@ -26,6 +26,9 @@ class Strategy(object):
     def update_at_end(self, old, new):
         pass
 
+    def preferred_move(self, board):
+        pass
+
     def preferred_board(self, old, moves, context):
         '''
         Parameters
@@ -61,7 +64,7 @@ class Strategy(object):
             the estimate value
         '''
         pass
-    
+
     def close(self):
         pass
 
@@ -73,7 +76,7 @@ class Strategy(object):
 
     def setup(self):
         pass
-    
+
     def mind_clone(self):
         pass
 
@@ -215,33 +218,33 @@ class StrategyTD(StrategyProb):
     def update_at_end(self, old, new):
         if not self.needs_update():
             return
-                
+
         if new.winner == Board.STONE_EMPTY:
             reward = 0
         else:
             reward = 2 if self.stand_for == new.winner else -2
-                
+
         if old is None:
             if self.prev_state is not None:
                 self._update_impl(self.prev_state, new, reward)
-        else:    
+        else:
             self._update_impl(old, new, reward)
-    
+
 
     def update(self, old, new):
         if not self.needs_update():
             return
-        
+
         if self.prev_state is None:
             self.prev_state = old
-            return       
-        
+            return
+
         if new is None:
             self._update_impl(self.prev_state, old, 0)
-        
+
         self.prev_state = old
- 
-          
+
+
     def _update_impl(self, old, new, reward):
 #         print('old', old.stones)
 #         print('new', new.stones)
@@ -249,12 +252,12 @@ class StrategyTD(StrategyProb):
 #         print('old input', old_inputs)
         old_hiddens = self.get_hidden_values(old_inputs)
         old_output = self.get_output(old_hiddens)
-        
+
 #         update traces
         dw2 = old_output * (1 - old_output) * old_hiddens
 #         dw2 = old_hiddens
         self.output_traces = self.lambdaa * self.output_traces + dw2
-  
+
         dw1 = dw2 * (1 - old_hiddens) * self.output_weights
 #         dw1 = self.output_weights
 #         print('dw1', dw1.shape)
@@ -262,18 +265,18 @@ class StrategyTD(StrategyProb):
 #         print('dw1:', dw1)
 
         self.hidden_traces = self.lambdaa * self.hidden_traces + np.outer(dw1, old_inputs)
-         
+
         new_input = self.get_input_values(new)
 #         print('new input', new_input)
         new_output = self.get_output(self.get_hidden_values(new_input))
-        
+
         delta = reward + self.gamma * new_output - old_output
 #         print('delta[{: 12.6g}], old[{: 15.6g}], new[{: 12.6g}], reward[{: 1.1f}]'.format(delta[0], old_output[0], new_output[0], reward))
 #         bak = np.copy(self.output_weights)
         self.output_weights += self.beta * delta * self.output_traces
         self.hidden_weights += self.alpha * delta * self.hidden_traces
 #         print(np.allclose(bak, self.output_weights))
-        
+
 
     def save(self, file):
         np.savez(file,
@@ -348,6 +351,25 @@ class StrategyHuman(Strategy):
                 continue
 
 
+class StrategyNetBot(Strategy):
+    def __init__(self):
+        super().__init__()
+
+    def preferred_board(self, old, moves, context):
+        game = context
+        while True:
+            self.wait_net_event()
+            i, j = 0, 0  # map(round, (pts[0, 0], pts[0, 1]))
+            loc = int(i * Board.BOARD_SIZE + j)
+            if old.stones[loc] == Board.STONE_EMPTY:
+                return [b for b in moves if b.stones[loc] != Board.STONE_EMPTY][0]
+            else:
+                print('invalid move')
+                continue
+
+    def wait_net_event(self):
+        pass
+
 class StrategyRand(Strategy):
     def __init__(self):
         super().__init__()
@@ -405,7 +427,7 @@ class StrategyMinMax(Strategy):
         DEPTH = 1
         score, row, col = self.searcher.search(game.whose_turn, DEPTH)
 #         print('score%d, loc(%d, %d)'%(score, row, col))
-        
+
         x = old.stones.copy()
         x[row * Board.BOARD_SIZE + col] = game.whose_turn
         b = Board()
@@ -416,12 +438,12 @@ class StrategyMinMax(Strategy):
 class Auditor(object):
     def on_episode_start(self):
         pass
-        
+
     def swallow(self, who, st0, st1):
         pass
-    
+
     def absorb(self, winner, **kwargs):
-        pass    
+        pass
 
 
 class StrategyMC(Strategy, Auditor):
@@ -438,10 +460,10 @@ class StrategyMC(Strategy, Auditor):
 
     def on_episode_start(self):
         self.mc.void()
-        
+
     def swallow(self, who, st0, st1):
         self.mc.swallow(who, st0, st1)
-    
+
     def absorb(self, winner, **kwargs):
         self.mc.absorb(winner, **kwargs)
 
@@ -454,4 +476,4 @@ class StrategyMC(Strategy, Auditor):
         with open(file, 'rb') as f:
             self.mc.net = pickle.load(f)
         print('load OK')
-    
+

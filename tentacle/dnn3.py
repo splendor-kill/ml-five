@@ -13,7 +13,7 @@ from tentacle.ds_loader import DatasetLoader
 
 class DCNN3(Pre):
     def __init__(self, is_train=True, is_revive=False):
-        super(DCNN3, self).__init__(is_train, is_revive)
+        super().__init__(is_train, is_revive)
         self.loader_train = DatasetLoader(Pre.DATA_SET_TRAIN)
         self.loader_valid = DatasetLoader(Pre.DATA_SET_VALID)
         self.loader_test = DatasetLoader(Pre.DATA_SET_TEST)
