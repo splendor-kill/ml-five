@@ -61,7 +61,8 @@ class DCNN1(Pre):
         cross_entropy = tf.nn.sparse_softmax_cross_entropy_with_logits(predictions, actions_pl)
         self.loss = tf.reduce_mean(cross_entropy)
         tf.scalar_summary("loss", self.loss)
-        self.optimizer = tf.train.GradientDescentOptimizer(Pre.LEARNING_RATE).minimize(self.loss)
+        self.optimizer = tf.train.GradientDescentOptimizer(Pre.LEARNING_RATE)
+        self.opt_op = self.optimizer.minimize(self.loss)
 
         self.predict_probs = tf.nn.softmax(predictions)
         eq = tf.equal(tf.argmax(self.predict_probs, 1), actions_pl)

@@ -43,7 +43,7 @@ class DCNN3(Pre):
         h_conv21 = tf.nn.relu(tf.nn.conv2d(self.h_conv2, W_21, [1, 1, 1, 1], padding='SAME') + b_21)
         h_conv22 = tf.nn.relu(tf.nn.conv2d(h_conv21, W_22, [1, 1, 1, 1], padding='SAME') + b_22)
 
-        shape = h_conv22.get_shape().as_list()        
+        shape = h_conv22.get_shape().as_list()
         dim = np.cumprod(shape[1:])[-1]
         h_conv_out = tf.reshape(h_conv22, [-1, dim])
 
@@ -59,10 +59,11 @@ class DCNN3(Pre):
         cross_entropy = tf.nn.softmax_cross_entropy_with_logits(predictions, actions_pl)
         self.loss = tf.reduce_mean(cross_entropy)
         tf.scalar_summary("loss", self.loss)
-        self.optimizer = tf.train.AdamOptimizer().minimize(self.loss)
+        self.optimizer = tf.train.AdamOptimizer()
+        self.opt_op = self.optimizer.minimize(self.loss)
 
         self.predict_probs = tf.nn.softmax(predictions)
-        
+
         eq = tf.equal(tf.argmax(self.predict_probs, 1), tf.argmax(actions_pl, 1))
 
 #         best_move = tf.argmax(actions_pl, 1)

@@ -138,26 +138,30 @@ class Pre(object):
         cross_entropy = tf.nn.sparse_softmax_cross_entropy_with_logits(predictions, actions_pl)
         self.loss = tf.reduce_mean(cross_entropy)
         tf.scalar_summary("loss", self.loss)
-        self.optimizer = tf.train.AdadeltaOptimizer(Pre.LEARNING_RATE).minimize(self.loss)
+        self.optimizer = tf.train.AdadeltaOptimizer(Pre.LEARNING_RATE)
+        self.opt_op = self.optimizer.minimize(self.loss)
 
         self.predict_probs = tf.nn.softmax(predictions)
         eq = tf.equal(tf.argmax(self.predict_probs, 1), actions_pl)
         self.eval_correct = tf.reduce_sum(tf.cast(eq, tf.int32))
 
     def prepare(self):
-        self.states_pl, self.actions_pl = self.placeholder_inputs()
-        self.model(self.states_pl, self.actions_pl)
 
-        self.summary_op = tf.merge_all_summaries()
+        with tf.Graph().as_default():
+            self.states_pl, self.actions_pl = self.placeholder_inputs()
+            self.model(self.states_pl, self.actions_pl)
 
-        self.saver = tf.train.Saver()
+            self.summary_op = tf.merge_all_summaries()
 
-        init = tf.initialize_all_variables()
-        self.sess = tf.Session()
-        self.summary_writer = tf.train.SummaryWriter(Pre.SUMMARY_DIR, self.sess.graph)
+            self.saver = tf.train.Saver()
 
-        self.sess.run(init)
-        print('Initialized')
+            init = tf.initialize_all_variables()
+
+            self.summary_writer = tf.train.SummaryWriter(Pre.SUMMARY_DIR, tf.get_default_graph())
+
+            self.sess = tf.Session(graph=tf.get_default_graph())
+            self.sess.run(init)
+            print('Initialized')
 
     def load_from_vat(self):
         ckpt = tf.train.get_checkpoint_state(Pre.BRAIN_DIR)
@@ -203,7 +207,7 @@ class Pre(object):
         validation_accuracy = 0
         for step in range(Pre.NUM_STEPS):
             feed_dict = self.fill_feed_dict(self.ds_train, self.states_pl, self.actions_pl)
-            _, loss = self.sess.run([self.optimizer, self.loss], feed_dict=feed_dict)
+            _, loss = self.sess.run([self.opt_op, self.loss], feed_dict=feed_dict)
             self.loss_window.extend(loss)
             self.gstep += 1
             step += 1
@@ -405,6 +409,17 @@ class Pre(object):
                 z = zipfile.ZipFile(fh)
                 for name in z.namelist():
                     z.extract(name, Pre.WORK_DIR)
+
+
+    def learning_through_play(self):
+#         for step in range(Pre.NUM_STEPS):
+#             feed_dict = feed_dict(self.states_pl, self.actions_pl, self.rewards_pl)
+#             self.sess.run([self.rl_op], feed_dict=feed_dict)
+        pass
+
+    def save_params(self):
+        self.saver.save(self.sess, Pre.BRAIN_CHECKPOINT_FILE, global_step=self.gstep)
+
 
 if __name__ == '__main__':
     pre = Pre(is_revive=True)
