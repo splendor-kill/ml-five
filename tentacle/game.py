@@ -3,9 +3,9 @@ from tentacle.board import Board
 
 
 class Game(object):
-    
+
     on_training = False
-    
+
     def __init__(self, board, strat1, strat2, gui=None, observer=None):
         self.board = board
         self.strat1 = strat1
@@ -15,7 +15,6 @@ class Game(object):
         self.verbose = True
         self.winner = Board.STONE_EMPTY
         self.context = {}
-        self.old_board = None
         self.gui = gui
         self.whose_turn = Board.STONE_EMPTY
         self.last_loc = None
@@ -30,7 +29,7 @@ class Game(object):
         strat = self.strat1 if self.whose_turn == self.strat1.stand_for else self.strat2
 #         print('who', strat.stand_for)
 
-        strat.update(self.board, None)        
+        strat.update(self.board, None)
 
         new_board = strat.preferred_board(self.board, moves, self)
 #         print('who%d play at %s'%(self.whose_turn, str(divmod(Board.change(self.board, new_board), Board.BOARD_SIZE))))
@@ -40,24 +39,23 @@ class Game(object):
             self.exploration_counter += 1
 
         self.over, self.winner, self.last_loc = new_board.is_over(self.board)
-        
+
         if self.observer is not None:
             self.observer.swallow(self.whose_turn, self.board, new_board)
-        
+
         if self.over:
             strat.update_at_end(self.board, new_board)
             opponent_strat = self.strat1 if self.whose_turn != self.strat1.stand_for else self.strat2
             opponent_strat.update_at_end(None, new_board)
             if self.observer is not None:
                 self.observer.absorb(self.whose_turn)
-                
-        self.old_board = self.board
+
         self.board = new_board
-        
+
         if self.strat1 == self.strat2:
             self.strat1.stand_for = Board.oppo(self.strat1.stand_for)
 
-    
+
     def step1(self):
         moves, self.whose_turn = Game.possible_moves(self.board)
 
@@ -69,28 +67,28 @@ class Game(object):
             self.exploration_counter += 1
 
         self.over, self.winner, self.last_loc = new_board.is_over(self.board)
-        
+
         strat.update_at_end(self.board, new_board)
 
         self.board = new_board
-        
+
         if self.strat1 == self.strat2:
             self.strat1.stand_for = Board.oppo(self.strat1.stand_for)
-            
-        
+
+
     def step_to_end(self):
         if self.observer is not None:
             self.observer.on_episode_start()
         while True:
             self.step()
-            
+
             self.step_counter += 1
-            
+
             if self.gui is not None:
                 self.gui.show(self)
             if self.over:
                 break
-            
+
 #             print()
 
     @staticmethod

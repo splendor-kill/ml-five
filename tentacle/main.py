@@ -4,6 +4,7 @@
 # matplotlib.use('Qt4Agg')
 import copy
 import datetime
+import random
 
 import matplotlib.patches as patches
 import matplotlib.pyplot as plt
@@ -65,6 +66,7 @@ class Gui(object):
         self.strategy_2 = None
         self.game = None
         self.all_stones = []
+        self.oppo_pool = []
 
     def _handle_close(self, event):
         if self.strategy_1 is not None:
@@ -118,6 +120,8 @@ class Gui(object):
             pass
         elif event.key == 'm':
             self.match()
+        elif event.key == 'f4':
+            self.reinforce()
 
         self.fig.canvas.draw()
 
@@ -516,6 +520,37 @@ class Gui(object):
         plt.title('press F3 start')
 
 
+    def reinforce(self):
+        if len(self.oppo_pool) == 0:
+            self.oppo_pool.append(StrategyDNN(is_train=False, is_revive=True))
+
+        s1 = StrategyDNN(is_train=False, is_revive=True)
+        s2 = random.choice(self.oppo_pool)
+
+        win1, win2, draw = 0, 0, 0
+
+        for i in range(100):
+            print('iter:', i)
+            for n in range(100):
+                s1.stand_for = random.choice([Board.STONE_BLACK, Board.STONE_WHITE])
+                s2.stand_for = Board.oppo(s1.stand_for)
+
+                g = Game(Board.rand_generate_a_position(), s1, s2, observer=s1)
+                g.step_to_end()
+                win1 += 1 if g.winner == s1.stand_for else 0
+                win2 += 1 if g.winner == s2.stand_for else 0
+                draw += 1 if g.winner == Board.STONE_EMPTY else 0
+
+            if (i + 1) % 500 == 0:
+                s1_c = s1.mind_clone()
+                s1_c.is_train = False
+                self.oppo_pool.append(s1_c)
+                s2 = random.choice(self.oppo_pool)
+
+        total = win1 + win2 + draw
+        print("black win: %f" % (win1 / total))
+        print("white win: %f" % (win2 / total))
+        print("draw: %f" % (draw / total))
 
 
 if __name__ == '__main__':

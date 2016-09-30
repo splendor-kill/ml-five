@@ -4,14 +4,14 @@ import numpy as np
 from tentacle.board import Board
 from tentacle.dnn import Pre
 from tentacle.dnn2 import DCNN2
-from tentacle.strategy import Strategy
+from tentacle.strategy import Strategy, Auditor
 
 
-class StrategyDNN(Strategy):
-    def __init__(self):
+class StrategyDNN(Strategy, Auditor):
+    def __init__(self, is_train=False, is_revive=True):
         super().__init__()
 #         self.brain = Pre(is_train=False, is_revive=True)
-        self.brain = DCNN2(is_train=False, is_revive=True)
+        self.brain = DCNN2(is_train, is_revive)
         self.brain.run()
 
     def update_at_end(self, old, new):
@@ -82,7 +82,23 @@ class StrategyDNN(Strategy):
         pass
 
     def mind_clone(self):
-        pass
+        self.brain.save_params()
+
+        n = DCNN2(False, True)
+        n.run()
+        return n
 
     def close(self):
         self.brain.close()
+
+    def on_episode_start(self):
+        self.brain.void()
+
+    def swallow(self, who, st0, st1, **kwargs):
+        if who != self.stand_for:
+            return
+        self.brain.swallow(who, st0, st1, **kwargs)
+
+    def absorb(self, winner, **kwargs):
+        self.brain.absorb(winner, **kwargs)
+

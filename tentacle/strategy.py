@@ -439,7 +439,7 @@ class Auditor(object):
     def on_episode_start(self):
         pass
 
-    def swallow(self, who, st0, st1):
+    def swallow(self, who, st0, st1, **kwargs):
         pass
 
     def absorb(self, winner, **kwargs):
@@ -461,8 +461,8 @@ class StrategyMC(Strategy, Auditor):
     def on_episode_start(self):
         self.mc.void()
 
-    def swallow(self, who, st0, st1):
-        self.mc.swallow(who, st0, st1)
+    def swallow(self, who, st0, st1, **kwargs):
+        self.mc.swallow(who, st0, st1, **kwargs)
 
     def absorb(self, winner, **kwargs):
         self.mc.absorb(winner, **kwargs)

@@ -109,7 +109,7 @@ class MonteCarlo(object):
         return iv
 
     
-    def swallow(self, who, st0, st1):
+    def swallow(self, who, st0, st1, **kwargs):
         self.observation.append((who, st0, st1))
     
     def absorb(self, winner, **kwargs):
