@@ -54,22 +54,42 @@ class DCNN3(Pre):
         b_4 = self.bias_variable([Pre.NUM_ACTIONS])
 
         self.hidden = tf.nn.relu(tf.matmul(h_conv_out, W_3) + b_3)
-        predictions = tf.matmul(self.hidden, W_4) + b_4
+        self.predictions = tf.matmul(self.hidden, W_4) + b_4
 
-        cross_entropy = tf.nn.softmax_cross_entropy_with_logits(predictions, actions_pl)
-        self.loss = tf.reduce_mean(cross_entropy)
+
+        self.reg_loss = tf.reduce_sum([tf.reduce_sum(tf.square(x)) for x in tf.trainable_variables()])
+        cross_entropy = tf.nn.softmax_cross_entropy_with_logits(self.predictions, actions_pl)
+        self.loss = tf.reduce_mean(cross_entropy) + 0.001 * self.reg_loss
+#         self.loss = tf.reduce_mean(-tf.reduce_sum(tf.nn.log_softmax(self.predictions) * actions_pl, reduction_indices=1))
         tf.scalar_summary("loss", self.loss)
-        self.optimizer = tf.train.AdamOptimizer()
+        self.optimizer = tf.train.GradientDescentOptimizer(0.001)
         self.opt_op = self.optimizer.minimize(self.loss)
 
-        self.predict_probs = tf.nn.softmax(predictions)
+        self.predict_probs = tf.nn.softmax(self.predictions)
 
-        eq = tf.equal(tf.argmax(self.predict_probs, 1), tf.argmax(actions_pl, 1))
+
+        action_scores = tf.identity(self.predictions, name="action_scores")
+        self.predicted_actions = tf.multinomial(action_scores, 1)
+
+#         eq = tf.equal(tf.argmax(self.predict_probs, 1), tf.argmax(actions_pl, 1))
+        eq = tf.equal(self.predicted_actions, tf.argmax(actions_pl, 1))
 
 #         best_move = tf.argmax(actions_pl, 1)
 #         eq = tf.nn.in_top_k(self.predict_probs, best_move, 3)
 
         self.eval_correct = tf.reduce_sum(tf.cast(eq, tf.int32))
+
+        self.rl_op(actions_pl)
+
+
+    def get_best_action(self, state):
+        h, w, c = self.get_input_shape()
+        feed_dict = {
+            self.states_pl: state.reshape(1, -1).reshape((-1, h, w, c)),
+#             self.actions_pl: np.zeros(1)
+        }
+        actions = self.sess.run(self.predicted_actions, feed_dict=feed_dict)[0]
+        return actions[0]
 
     def forge(self, row):
         board = row[:Board.BOARD_SIZE_SQ]
