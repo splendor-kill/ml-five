@@ -527,11 +527,13 @@ class Gui(object):
         s1 = StrategyDNN(is_train=False, is_revive=True)
         s2 = random.choice(self.oppo_pool)
 
+        stat = []
         win1, win2, draw = 0, 0, 0
 
-        for i in range(100):
+        iter_n = 5000
+        for i in range(iter_n):
             print('iter:', i)
-            for n in range(100):
+            for _ in range(100):
                 s1.stand_for = random.choice([Board.STONE_BLACK, Board.STONE_WHITE])
                 s2.stand_for = Board.oppo(s1.stand_for)
 
@@ -547,10 +549,17 @@ class Gui(object):
                 self.oppo_pool.append(s1_c)
                 s2 = random.choice(self.oppo_pool)
 
-        total = win1 + win2 + draw
-        print("black win: %f" % (win1 / total))
-        print("white win: %f" % (win2 / total))
-        print("draw: %f" % (draw / total))
+            if i % (iter_n // 100 or 1) == 0 or i + 1 == iter_n :
+                total = win1 + win2 + draw
+                win1_r = win1 / total
+                win2_r = win2 / total
+                draw_r = draw / total
+                print("win: %.3f, loss: %.3f, tie: %.3f" % (win1_r, win2_r, draw_r))
+                stat.append([win1_r, win2_r, draw_r])
+
+        stat = np.array(stat)
+        print('stat. shape:', stat.shape)
+        np.savez('/home/splendor/fusor/stat.npz', stat=np.array(stat))
 
 
 if __name__ == '__main__':

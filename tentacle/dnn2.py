@@ -17,8 +17,6 @@ class DCNN2(Pre):
         self.loader_train = DatasetLoader(Pre.DATA_SET_TRAIN)
         self.loader_valid = DatasetLoader(Pre.DATA_SET_VALID)
         self.loader_test = DatasetLoader(Pre.DATA_SET_TEST)
-        self.observation = []
-        self.ds_rl = []
 
     def diags(self, a):
         assert len(a.shape) == 2 and a.shape[0] == a.shape[1]
@@ -69,13 +67,14 @@ class DCNN2(Pre):
         b_4 = self.bias_variable([Pre.NUM_ACTIONS])
 
         self.hidden = tf.matmul(h_conv_out, W_3) + b_3
-        predictions = tf.matmul(self.hidden, W_4) + b_4
+        self.predictions = tf.matmul(self.hidden, W_4) + b_4
 
-        self.cross_entropy = tf.nn.softmax_cross_entropy_with_logits(predictions, actions_pl)
-        self.loss = tf.reduce_mean(self.cross_entropy)
+        self.cross_entropy = tf.nn.softmax_cross_entropy_with_logits(self.predictions, actions_pl)
+#         self.loss = tf.reduce_mean(self.cross_entropy)
+        self.loss = tf.reduce_mean(-tf.reduce_sum(tf.nn.log_softmax(self.predictions) * actions_pl, reduction_indices=1))
         print("states_pl shape:", states_pl.get_shape())
         print("actions_pl shape:", actions_pl.get_shape())
-        print("predictions shape:", predictions.get_shape())
+        print("predictions shape:", self.predictions.get_shape())
         print("cross_entropy shape:", self.cross_entropy.get_shape())
         print("loss shape:", self.loss.get_shape())
 
@@ -83,38 +82,11 @@ class DCNN2(Pre):
         self.optimizer = tf.train.AdamOptimizer()
         self.opt_op = self.optimizer.minimize(self.loss)
 
-        self.predict_probs = tf.nn.softmax(predictions)
+        self.predict_probs = tf.nn.softmax(self.predictions)
         eq = tf.equal(tf.argmax(self.predict_probs, 1), tf.argmax(actions_pl, 1))
         self.eval_correct = tf.reduce_sum(tf.cast(eq, tf.int32))
 
         self.rl_op(actions_pl)
-
-    def rl_op(self, actions_pl):
-        self.rewards_pl = tf.placeholder(tf.float32, shape=[None])
-
-        # SARSA: alpha * [r + gamma * Q(s', a') - Q(s, a)] * grad
-        # Q: alpha * [r + gamma * max<a>Q(s', a) − Q(s, a)] * grad
-
-        print("rewards_pl shape:", self.rewards_pl.get_shape())
-
-        maxa = tf.reduce_max(self.predict_probs, reduction_indices=1)
-        qsa = tf.boolean_mask(self.predict_probs, tf.cast(actions_pl, tf.bool))
-        delta = self.rewards_pl + 0.9 * maxa - qsa
-        print('delta shape:', delta.get_shape())
-        delta = tf.reduce_mean(delta)
-
-        gradients = self.optimizer.compute_gradients(self.loss)
-        print("gradients size:", len(gradients))
-        for i, (grad, var) in enumerate(gradients):
-            tf.histogram_summary(var.name, var)
-            if grad is not None:
-                tf.histogram_summary(var.name + '/gradients', grad)
-                gradients[i] = (0.1 * grad * delta, var)
-
-        self.train_op = self.optimizer.apply_gradients(gradients)
-
-#         loss = tf.reduce_mean(0.01 * self.cross_entropy * self.rewards_pl)
-#         self.train_op = self.optimizer.minimize(loss)
 
 
     def forge(self, row):
@@ -183,43 +155,6 @@ class DCNN2(Pre):
 
     def mid_vis(self, feed_dict):
         pass
-
-    def swallow(self, who, st0, st1, **kwargs):
-        self.observation.append((who, st0, st1))
-
-    def absorb(self, winner, **kwargs):
-        h, w, c = self.get_input_shape()
-
-        states = []
-        actions = []
-        rewards = []
-
-        for who, st0, st1 in self.observation:
-            reward = 0
-            if winner != 0:
-                reward = 1 if who == winner else -1
-            action = np.not_equal(st1.stones, st0.stones).astype(np.float32)
-            state, _ = self.adapt_state(st1.stones)
-            state = state.reshape((-1, h, w, c))
-            states.append(state)
-            actions.append(action)
-            rewards.append(reward)
-
-        states = np.vstack(states)
-        actions = np.vstack(actions)
-        rewards = np.array(rewards)
-
-#         print('reinforce T:', rewards.shape[0], ', R:', rewards[0])
-
-#         print("ds_rl states shape:", states.shape)
-#         print("ds_rl actions shape:", actions.shape)
-#         print("ds_rl rewards shape:", rewards.shape)
-        self.sess.run(self.train_op, feed_dict={self.states_pl:states, self.actions_pl:actions, self.rewards_pl:rewards})
-        self.gstep += 1
-#         self.ds_rl.clear()
-
-    def void(self):
-        self.observation = []
 
 if __name__ == '__main__':
     n = DCNN2(is_revive=False)

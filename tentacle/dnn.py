@@ -67,6 +67,8 @@ class Pre(object):
         self.acc_vs_size = []
         self.gap = 0
         self.sparse_labels = False
+        self.observation = []
+        self.is_rl = True
 
     def placeholder_inputs(self):
         h, w, c = self.get_input_shape()
@@ -144,6 +146,59 @@ class Pre(object):
         self.predict_probs = tf.nn.softmax(predictions)
         eq = tf.equal(tf.argmax(self.predict_probs, 1), actions_pl)
         self.eval_correct = tf.reduce_sum(tf.cast(eq, tf.int32))
+
+        self.rl_op(actions_pl)
+
+    def rl_op(self, actions_pl):
+        if not self.is_rl:
+            return
+        self.rewards_pl = tf.placeholder(tf.float32, shape=[None])
+
+        # SARSA: alpha * [r + gamma * Q(s', a') - Q(s, a)] * grad
+        # Q: alpha * [r + gamma * max<a>Q(s', a) − Q(s, a)] * grad
+
+        print("rewards_pl shape:", self.rewards_pl.get_shape())
+
+#         maxa = tf.reduce_max(self.predict_probs, reduction_indices=1)
+#         qsa = tf.boolean_mask(self.predict_probs, tf.cast(actions_pl, tf.bool))
+#         delta = self.rewards_pl + 0.9 * maxa - qsa
+#         print('delta shape:', delta.get_shape())
+#         delta = tf.reduce_mean(delta)
+#
+#         gradients = self.optimizer.compute_gradients(self.loss)
+#         print("gradients size:", len(gradients))
+#         for i, (grad, var) in enumerate(gradients):
+#             tf.histogram_summary(var.name, var)
+#             if grad is not None:
+#                 tf.histogram_summary(var.name + '/gradients', grad)
+#                 gradients[i] = (0.1 * grad * delta, var)
+#
+#         self.train_op = self.optimizer.apply_gradients(gradients)
+
+        cross_entropy = tf.nn.softmax_cross_entropy_with_logits(self.predictions, actions_pl)
+#         self.rl_loss = tf.reduce_mean(cross_entropy * self.rewards_pl) + 0.001 * self.reg_loss
+#         self.rl_loss = tf.reduce_mean(-tf.reduce_sum(tf.nn.log_softmax(self.predictions) * actions_pl, reduction_indices=1) * self.rewards_pl)
+#         tf.scalar_summary("rl_loss", self.rl_loss)
+        self.rl_loss = tf.reduce_sum(-tf.mul(cross_entropy, self.rewards_pl))
+        self.train_op = self.optimizer.minimize(self.rl_loss)
+
+#         gradients = self.optimizer.compute_gradients(self.rl_loss)
+#         for grad, var in gradients:
+#             tf.histogram_summary(var.name, var)
+#             if grad is not None:
+#                 tf.histogram_summary(var.name + '/gradients', grad)
+
+
+
+#         r = tf.reduce_mean(self.rewards_pl)
+#         gradients = self.optimizer.compute_gradients(self.loss)
+#         for i, (grad, var) in enumerate(gradients):
+#           if grad is not None:
+#               gradients[i] = (tf.clip_by_norm(grad * r, 5), var)
+#
+#         self.train_op = self.optimizer.apply_gradients(gradients)
+
+
 
     def prepare(self):
 
@@ -419,6 +474,55 @@ class Pre(object):
 
     def save_params(self):
         self.saver.save(self.sess, Pre.BRAIN_CHECKPOINT_FILE, global_step=self.gstep)
+
+    def swallow(self, who, st0, st1, **kwargs):
+        self.observation.append((who, st0, st1))
+
+    def absorb(self, winner, **kwargs):
+        h, w, c = self.get_input_shape()
+
+        states = []
+        actions = []
+        rewards = []
+
+        for who, st0, st1 in self.observation:
+            reward = 0
+            if winner != 0:
+                reward = 1 if who == winner else -1
+            action = np.not_equal(st1.stones, st0.stones).astype(np.float32)
+            state, _ = self.adapt_state(st0.stones)
+            state = state.reshape((-1, h, w, c))
+            states.append(state)
+            actions.append(action)
+            rewards.append(reward)
+
+        states = np.vstack(states)
+        actions = np.vstack(actions)
+        rewards = np.array(rewards)
+#         rewards = self.discount_episode_rewards(rewards)
+
+#         print('reinforce T:', rewards.shape[0], ', R:', rewards[0])
+
+        fd = {self.states_pl:states, self.actions_pl:actions, self.rewards_pl:rewards}
+        _, loss = self.sess.run([self.train_op, self.rl_loss], feed_dict=fd)
+#         print('reward:', rewards[0], ', loss:', loss)
+        self.gstep += 1
+
+        if (self.gstep % 1 == 0):
+            summary_str = self.sess.run(self.summary_op, feed_dict=fd)
+            self.summary_writer.add_summary(summary_str, self.gstep)
+            self.summary_writer.flush()
+
+    def void(self):
+        self.observation = []
+
+    def discount_episode_rewards(self, rewards=[], gamma=0.99):
+        discounted_r = np.zeros_like(rewards, dtype=np.float32)
+        r = 0
+        for t in reversed(range(0, discounted_r.size)):
+            r = r * gamma + rewards[t]
+            discounted_r[t] = r
+        return discounted_r
 
 
 if __name__ == '__main__':
