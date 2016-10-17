@@ -122,6 +122,8 @@ class Gui(object):
             self.match()
         elif event.key == 'f4':
             self.reinforce()
+        elif event.key == 'f12':
+            plt.pause(600)
 
         self.fig.canvas.draw()
 
@@ -150,6 +152,13 @@ class Gui(object):
             return self.strategy_2
         return None
 
+    def clear_board(self):
+        print('\nclear board\n')
+
+        for s in self.all_stones:
+            s.remove()
+        self.all_stones.clear()
+        self.fig.canvas.draw()
 
     def vs_human(self, which_side_human_play):
 #         s1 = StrategyMinMax()
@@ -173,12 +182,8 @@ class Gui(object):
         s2 = StrategyHuman()
         s2.stand_for = which_side_human_play
 
-        print('\nclear board\n')
 
-        for s in self.all_stones:
-            s.remove()
-        self.all_stones.clear()
-        self.fig.canvas.draw()
+        self.clear_board()
 
         self.board = Board()
         self.game = Game(self.board, s1, s2, self)
@@ -202,6 +207,7 @@ class Gui(object):
         self.all_stones.append(s)
         self.ax.add_patch(s)
         self.fig.canvas.draw()
+        plt.pause(0.1)
 
     def measure_perf(self, s1, s2):
         old_epsilon1, old_is_learning1, old_stand_for1 = s1.epsilon, s1.is_learning, s1.stand_for
@@ -530,9 +536,11 @@ class Gui(object):
         stat = []
         win1, win2, draw = 0, 0, 0
 
-        iter_n = 5000
-        for i in range(iter_n):
+        iter_n = 500
+        i = 0
+        while True:
             print('iter:', i)
+
             for _ in range(100):
                 s1.stand_for = random.choice([Board.STONE_BLACK, Board.STONE_WHITE])
                 s2.stand_for = Board.oppo(s1.stand_for)
@@ -543,23 +551,32 @@ class Gui(object):
                 win2 += 1 if g.winner == s2.stand_for else 0
                 draw += 1 if g.winner == Board.STONE_EMPTY else 0
 
-            if (i + 1) % 500 == 0:
-                s1_c = s1.mind_clone()
-                s1_c.is_train = False
-                self.oppo_pool.append(s1_c)
-                s2 = random.choice(self.oppo_pool)
+#             if (i + 1) % 500 == 0:
+#                 s1_c = s1.mind_clone()
+#                 s1_c.is_train = False
+#                 self.oppo_pool.append(s1_c)
+#                 s2 = random.choice(self.oppo_pool)
 
-            if i % (iter_n // 100 or 1) == 0 or i + 1 == iter_n :
+            if i % 100 == 0 or i + 1 == iter_n:
                 total = win1 + win2 + draw
                 win1_r = win1 / total
                 win2_r = win2 / total
                 draw_r = draw / total
                 print("win: %.3f, loss: %.3f, tie: %.3f" % (win1_r, win2_r, draw_r))
                 stat.append([win1_r, win2_r, draw_r])
+                if stat[-1][0] > 0.55:
+                    break
+
+            i += 1
+
+            if i > iter_n:
+                break
 
         stat = np.array(stat)
         print('stat. shape:', stat.shape)
         np.savez('/home/splendor/fusor/stat.npz', stat=np.array(stat))
+        self.strategy_1 = self.strategy_2 = s1
+
 
 
 if __name__ == '__main__':

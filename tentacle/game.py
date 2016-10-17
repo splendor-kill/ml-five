@@ -14,6 +14,7 @@ class Game(object):
         self.exploration_counter = 0
         self.verbose = True
         self.winner = Board.STONE_EMPTY
+        self.over = False
         self.context = {}
         self.gui = gui
         self.whose_turn = Board.STONE_EMPTY
@@ -22,6 +23,8 @@ class Game(object):
         self.strat1.setup()
         self.strat2.setup()
         self.observer = observer
+        if self.gui is not None:
+            self.gui.clear_board()
 
     def step(self):
         moves, self.whose_turn = Game.possible_moves(self.board)
@@ -86,6 +89,7 @@ class Game(object):
 
             if self.gui is not None:
                 self.gui.show(self)
+
             if self.over:
                 break
 

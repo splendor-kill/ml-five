@@ -32,51 +32,38 @@ class StrategyDNN(Strategy, Auditor):
         v = board.stones
 
         state, legal = self.get_input_values(v)
-#         probs = self.brain.get_move_probs(state)
-#
-#         legal = np.logical_not(legal).reshape(1, -1)
-#         legal_prob = np.ma.masked_where(legal, probs)
-#         best_move = np.argmax(legal_prob, axis=1)
-#         loc = np.unravel_index(best_move[0], (Board.BOARD_SIZE, Board.BOARD_SIZE))
+        probs = self.brain.get_move_probs(state)
 
-        best_move = self.brain.get_best_action(state)
-        loc = np.unravel_index(best_move, (Board.BOARD_SIZE, Board.BOARD_SIZE))
-        is_legal = board.is_legal(loc[0], loc[1])
-#         print('best move:', loc, 'is legal:', is_legal)
-        if not is_legal:
-            rand_loc = np.random.choice(np.where(board == Board.STONE_EMPTY)[0], 1)[0]
+        if np.random.rand() < 0.03:
+            rand_loc = np.random.choice(np.where(v == Board.STONE_EMPTY)[0], 1)[0]
             loc = np.unravel_index(rand_loc, (Board.BOARD_SIZE, Board.BOARD_SIZE))
-            print('brain get illegal, random choice:', loc)
+#             print('explore at:', loc)
+            return loc
+        else:
+#             best_move = np.argmax(np.random.multinomial(1, probs[0] - np.finfo(np.float32).epsneg))
+            best_move = np.argmax(probs, 1)[0]
+            loc = np.unravel_index(best_move, (Board.BOARD_SIZE, Board.BOARD_SIZE))
+            is_legal = board.is_legal(loc[0], loc[1])
+            if not is_legal:
+#                 print('best move:', best_move, ', loc:', loc, 'is legal:', is_legal)
+                rand_loc = np.random.choice(np.where(v == Board.STONE_EMPTY)[0], 1)[0]
+                loc = np.unravel_index(rand_loc, (Board.BOARD_SIZE, Board.BOARD_SIZE))
+#                 print(self.stand_for,' get illegal, random choice:', loc)
 
-        return loc
-
+            return loc
 
     def preferred_board(self, old, moves, context):
         if not moves:
-            return old
+            raise Exception('should be ended')
 
+        loc = self.preferred_move(old)
+        best_move = np.ravel_multi_index(loc, (Board.BOARD_SIZE, Board.BOARD_SIZE))
         v = old.stones
-
-        state, legal = self.get_input_values(v)
-        probs = self.brain.get_move_probs(state)
-
-        legal = np.logical_not(legal).reshape(1, -1)
-        legal_prob = np.ma.masked_where(legal, probs)
-        best_move = np.argmax(legal_prob, axis=1)
-
-        loc = np.unravel_index(best_move[0], (Board.BOARD_SIZE, Board.BOARD_SIZE))
-#         print('predict move here: %s' % (loc,))
-        try:
-            if v[best_move] == Board.STONE_EMPTY:
-                for m in moves:
-                    if m.stones[best_move] != Board.STONE_EMPTY:
-                        return m
-                raise Exception('impossible')
-            else:
-                raise Exception('invalid prediction, %s was occupied' % (loc,))
-        except Exception as e:
-            print(e)
-            return random.choice(moves)
+        if v[best_move] == Board.STONE_EMPTY:
+            for m in moves:
+                if m.stones[best_move] != Board.STONE_EMPTY:
+                    return m
+        raise Exception('impossible')
 
     def get_input_values(self, board):
         state, _ = self.brain.adapt_state(board)
@@ -104,9 +91,12 @@ class StrategyDNN(Strategy, Auditor):
         self.brain.void()
 
     def swallow(self, who, st0, st1, **kwargs):
-#         if who != self.stand_for:
-#             return
-        self.brain.swallow(who, st0, st1, **kwargs)
+        if who != self.stand_for:
+            return
+
+        action = np.not_equal(st1.stones, st0.stones).astype(np.float32)
+
+        self.brain.swallow(who, st0, action, **kwargs)
 
     def absorb(self, winner, **kwargs):
         self.brain.absorb(winner, **kwargs)

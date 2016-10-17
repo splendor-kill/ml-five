@@ -137,8 +137,8 @@ class Pre(object):
         predictions = tf.matmul(self.hidden, W_4) + b_4
 
         self.sparse_labels = True
-        cross_entropy = tf.nn.sparse_softmax_cross_entropy_with_logits(predictions, actions_pl)
-        self.loss = tf.reduce_mean(cross_entropy)
+        self.cross_entropy = tf.nn.sparse_softmax_cross_entropy_with_logits(predictions, actions_pl)
+        self.loss = tf.reduce_mean(self.cross_entropy)
         tf.scalar_summary("loss", self.loss)
         self.optimizer = tf.train.AdadeltaOptimizer(Pre.LEARNING_RATE)
         self.opt_op = self.optimizer.minimize(self.loss)
@@ -157,7 +157,7 @@ class Pre(object):
         # SARSA: alpha * [r + gamma * Q(s', a') - Q(s, a)] * grad
         # Q: alpha * [r + gamma * max<a>Q(s', a) − Q(s, a)] * grad
 
-        print("rewards_pl shape:", self.rewards_pl.get_shape())
+#         print("rewards_pl shape:", self.rewards_pl.get_shape())
 
 #         maxa = tf.reduce_max(self.predict_probs, reduction_indices=1)
 #         qsa = tf.boolean_mask(self.predict_probs, tf.cast(actions_pl, tf.bool))
@@ -175,12 +175,15 @@ class Pre(object):
 #
 #         self.train_op = self.optimizer.apply_gradients(gradients)
 
-        cross_entropy = tf.nn.softmax_cross_entropy_with_logits(self.predictions, actions_pl)
-#         self.rl_loss = tf.reduce_mean(cross_entropy * self.rewards_pl) + 0.001 * self.reg_loss
-#         self.rl_loss = tf.reduce_mean(-tf.reduce_sum(tf.nn.log_softmax(self.predictions) * actions_pl, reduction_indices=1) * self.rewards_pl)
-#         tf.scalar_summary("rl_loss", self.rl_loss)
-        self.rl_loss = tf.reduce_sum(-tf.mul(cross_entropy, self.rewards_pl))
-        self.train_op = self.optimizer.minimize(self.rl_loss)
+#         log_probs = tf.nn.log_softmax(self.predictions)
+#         diag_rewards = tf.diag(self.rewards_pl)
+#         print('log_probs:', log_probs.get_shape(), 'reward:', self.rewards_pl.get_shape(), 'pred:', self.predictions.get_shape(), 'xe:', self.cross_entropy.get_shape())
+#         self.rl_loss = tf.reduce_mean(tf.matmul(diag_rewards, log_probs))
+        self.rl_loss = -tf.reduce_mean(tf.mul(self.rewards_pl, self.cross_entropy))
+
+        tf.scalar_summary("rl_loss", self.rl_loss)
+#         self.train_op = self.optimizer.minimize(self.rl_loss)
+        self.train_op = tf.train.GradientDescentOptimizer(0.0001).minimize(self.rl_loss)
 
 #         gradients = self.optimizer.compute_gradients(self.rl_loss)
 #         for grad, var in gradients:
@@ -188,14 +191,11 @@ class Pre(object):
 #             if grad is not None:
 #                 tf.histogram_summary(var.name + '/gradients', grad)
 
-
-
 #         r = tf.reduce_mean(self.rewards_pl)
-#         gradients = self.optimizer.compute_gradients(self.loss)
+#         gradients = self.optimizer.compute_gradients(log_probs)
 #         for i, (grad, var) in enumerate(gradients):
 #           if grad is not None:
-#               gradients[i] = (tf.clip_by_norm(grad * r, 5), var)
-#
+#               gradients[i] = (grad * r * 0.01, var)
 #         self.train_op = self.optimizer.apply_gradients(gradients)
 
 
@@ -475,8 +475,8 @@ class Pre(object):
     def save_params(self):
         self.saver.save(self.sess, Pre.BRAIN_CHECKPOINT_FILE, global_step=self.gstep)
 
-    def swallow(self, who, st0, st1, **kwargs):
-        self.observation.append((who, st0, st1))
+    def swallow(self, who, st0, action, **kwargs):
+        self.observation.append((who, st0, action))
 
     def absorb(self, winner, **kwargs):
         h, w, c = self.get_input_shape()
@@ -485,11 +485,13 @@ class Pre(object):
         actions = []
         rewards = []
 
-        for who, st0, st1 in self.observation:
+#         if winner == self.observation[0][0]:
+#             return
+
+        for who, st0, action in self.observation:
             reward = 0
             if winner != 0:
                 reward = 1 if who == winner else -1
-            action = np.not_equal(st1.stones, st0.stones).astype(np.float32)
             state, _ = self.adapt_state(st0.stones)
             state = state.reshape((-1, h, w, c))
             states.append(state)
@@ -499,16 +501,15 @@ class Pre(object):
         states = np.vstack(states)
         actions = np.vstack(actions)
         rewards = np.array(rewards)
+#         rewards[:-1] = 0.
 #         rewards = self.discount_episode_rewards(rewards)
 
-#         print('reinforce T:', rewards.shape[0], ', R:', rewards[0])
-
-        fd = {self.states_pl:states, self.actions_pl:actions, self.rewards_pl:rewards}
+        fd = {self.states_pl:states, self.actions_pl:actions, self.rewards_pl:rewards}  # [i][np.newaxis, ...]
         _, loss = self.sess.run([self.train_op, self.rl_loss], feed_dict=fd)
-#         print('reward:', rewards[0], ', loss:', loss)
+#         print('reward:', rewards[-1], ', loss:', loss, ', winner:', winner, ', stand for:', self.observation[0][0])
         self.gstep += 1
 
-        if (self.gstep % 1 == 0):
+        if (self.gstep % 100 == 0):
             summary_str = self.sess.run(self.summary_op, feed_dict=fd)
             self.summary_writer.add_summary(summary_str, self.gstep)
             self.summary_writer.flush()
