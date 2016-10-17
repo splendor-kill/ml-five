@@ -332,6 +332,8 @@ class StrategyHuman(Strategy):
 
     def preferred_board(self, old, moves, context):
         game = context
+        if game.over:
+            return
         game.wait_human = True
 
         plt.title('set down a stone')
