@@ -478,4 +478,3 @@ class StrategyMC(Strategy, Auditor):
         with open(file, 'rb') as f:
             self.mc.net = pickle.load(f)
         print('load OK')
-

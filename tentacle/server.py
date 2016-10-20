@@ -44,7 +44,7 @@ def dispose_msg(conn, msg):
 #          clear board
         board_size = int(seq[1])
         board = Board(board_size)
-        s1 = StrategyDNN()
+        s1 = StrategyDNN(is_train=True)
         first_query = True
         who_first = None
         ans = 'START: OK'
@@ -127,11 +127,6 @@ def net():
         start_new_thread(clientthread, (conn,))
 
     s.close()
-
-
-class Server(object):
-    def __init__(self):
-        pass
 
 
 if __name__ == '__main__':

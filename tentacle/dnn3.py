@@ -43,8 +43,7 @@ class DCNN3(Pre):
         h_conv21 = tf.nn.relu(tf.nn.conv2d(self.h_conv2, W_21, [1, 1, 1, 1], padding='SAME') + b_21)
         h_conv22 = tf.nn.relu(tf.nn.conv2d(h_conv21, W_22, [1, 1, 1, 1], padding='SAME') + b_22)
 
-        shape = h_conv22.get_shape().as_list()
-        dim = np.cumprod(shape[1:])[-1]
+        dim = h_conv22.get_shape()[1:].num_elements()
         h_conv_out = tf.reshape(h_conv22, [-1, dim])
 
         num_hidden = 128
