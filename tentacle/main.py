@@ -2,16 +2,19 @@
 # print(matplotlib.get_backend())
 # print(matplotlib.is_interactive())
 # matplotlib.use('Qt4Agg')
+from _thread import start_new_thread
 import copy
 import datetime
 import random
+from threading import Thread
 
 import matplotlib.patches as patches
 import matplotlib.pyplot as plt
 import numpy as np
 from tentacle.board import Board
 from tentacle.game import Game
-from tentacle.strategy import StrategyHuman, StrategyMC
+from tentacle.server import net
+from tentacle.strategy import StrategyHuman, StrategyMC, StrategyNetBot
 from tentacle.strategy import StrategyMinMax
 from tentacle.strategy import StrategyTD, StrategyRand
 from tentacle.strategy_ann import StrategyANN
@@ -28,8 +31,7 @@ class Gui(object):
 
 
 
-    def __init__(self, board):
-        self.board = board
+    def __init__(self):
         size = Board.BOARD_SIZE
 
         keymap = [k for k in plt.rcParams.keys() if k.startswith('keymap.')]
@@ -67,6 +69,7 @@ class Gui(object):
         self.game = None
         self.all_stones = []
         self.oppo_pool = []
+        plt.show()
 
     def _handle_close(self, event):
         if self.strategy_1 is not None:
@@ -122,8 +125,11 @@ class Gui(object):
             self.match()
         elif event.key == 'f4':
             self.reinforce()
+        elif event.key == 'f5':
+            self.join_net_match()
         elif event.key == 'f12':
             plt.pause(600)
+
 
         self.fig.canvas.draw()
 
@@ -182,11 +188,9 @@ class Gui(object):
         s2 = StrategyHuman()
         s2.stand_for = which_side_human_play
 
-
         self.clear_board()
 
-        self.board = Board()
-        self.game = Game(self.board, s1, s2, self)
+        self.game = Game(Board(), s1, s2, self)
         self.game.step_to_end()
 
         plt.title(Gui.RESULT_MSG[self.game.winner])
@@ -536,7 +540,8 @@ class Gui(object):
         stat = []
         win1, win2, draw = 0, 0, 0
 
-        iter_n = 500
+        n_lose = 0
+        iter_n = 10
         i = 0
         while True:
             print('iter:', i)
@@ -551,21 +556,26 @@ class Gui(object):
                 win2 += 1 if g.winner == s2.stand_for else 0
                 draw += 1 if g.winner == Board.STONE_EMPTY else 0
 
-#             if (i + 1) % 500 == 0:
+#             if win1 > win2:
 #                 s1_c = s1.mind_clone()
 #                 s1_c.is_train = False
 #                 self.oppo_pool.append(s1_c)
 #                 s2 = random.choice(self.oppo_pool)
+#                 n_lose = 0
+#                 print('stronger, oppos:', len(self.oppo_pool))
+#             elif win1 < win2:
+#                 n_lose += 1
+#
+#             if n_lose >= 50:
+#                 break
 
-            if i % 100 == 0 or i + 1 == iter_n:
+            if i % 1 == 0 or i + 1 == iter_n:
                 total = win1 + win2 + draw
                 win1_r = win1 / total
                 win2_r = win2 / total
                 draw_r = draw / total
-                print("win: %.3f, loss: %.3f, tie: %.3f" % (win1_r, win2_r, draw_r))
+                print("iter:%d, win: %.3f, loss: %.3f, tie: %.3f" % (i, win1_r, win2_r, draw_r))
                 stat.append([win1_r, win2_r, draw_r])
-                if stat[-1][0] > 0.55:
-                    break
 
             i += 1
 
@@ -577,10 +587,25 @@ class Gui(object):
         np.savez('/home/splendor/fusor/stat.npz', stat=np.array(stat))
         self.strategy_1 = self.strategy_2 = s1
 
+    def join_net_match(self):
+#         start_new_thread(net())
+
+        thread = Thread(target=net)
+        thread.start()
+
+        print('here')
+        s1 = StrategyDNN()
+        s2 = StrategyNetBot()
+
+        self.clear_board()
+        self.game = Game(Board(), s1, s2, self)
+        self.game.step_to_end()
+
+        plt.title(Gui.RESULT_MSG[self.game.winner])
+        print(Gui.RESULT_MSG[self.game.winner])
+        self.fig.canvas.draw()
 
 
 if __name__ == '__main__':
-    board = Board()
-    gui = Gui(board)
-    plt.show()
+    gui = Gui()
 

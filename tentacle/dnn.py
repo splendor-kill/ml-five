@@ -156,40 +156,30 @@ class Pre(object):
 
         # SARSA: alpha * [r + gamma * Q(s', a') - Q(s, a)] * grad
         # Q: alpha * [r + gamma * max<a>Q(s', a) − Q(s, a)] * grad
-
-#         print("rewards_pl shape:", self.rewards_pl.get_shape())
-
 #         maxa = tf.reduce_max(self.predict_probs, reduction_indices=1)
 #         qsa = tf.boolean_mask(self.predict_probs, tf.cast(actions_pl, tf.bool))
-#         delta = self.rewards_pl + 0.9 * maxa - qsa
+#         delta = self.rewards_pl + 0.95 * maxa - qsa
 #         print('delta shape:', delta.get_shape())
 #         delta = tf.reduce_mean(delta)
-#
-#         gradients = self.optimizer.compute_gradients(self.loss)
-#         print("gradients size:", len(gradients))
+#         gradients = self.optimizer.compute_gradients(self.predict_probs)
 #         for i, (grad, var) in enumerate(gradients):
 #             tf.histogram_summary(var.name, var)
 #             if grad is not None:
 #                 tf.histogram_summary(var.name + '/gradients', grad)
-#                 gradients[i] = (0.1 * grad * delta, var)
-#
+#                 gradients[i] = (0.001 * grad * delta, var)
 #         self.train_op = self.optimizer.apply_gradients(gradients)
 
-#         log_probs = tf.nn.log_softmax(self.predictions)
-#         diag_rewards = tf.diag(self.rewards_pl)
+        log_probs = tf.nn.log_softmax(self.predictions)
+        diag_rewards = tf.diag(self.rewards_pl)
 #         print('log_probs:', log_probs.get_shape(), 'reward:', self.rewards_pl.get_shape(), 'pred:', self.predictions.get_shape(), 'xe:', self.cross_entropy.get_shape())
-#         self.rl_loss = tf.reduce_mean(tf.matmul(diag_rewards, log_probs))
-        self.rl_loss = -tf.reduce_mean(tf.mul(self.rewards_pl, self.cross_entropy))
+        self.rl_loss = tf.reduce_mean(tf.matmul(diag_rewards, log_probs))
+#         self.rl_loss = -tf.reduce_mean(tf.mul(self.rewards_pl, self.cross_entropy))
+#         self.rl_loss = self.loss
+#         self.rl_loss = tf.cond(tf.less(tf.reduce_mean(self.rewards_pl), 0), lambda: tf.reduce_mean(-self.cross_entropy) + 0.001 * self.reg_loss, lambda: self.loss)
 
-        tf.scalar_summary("rl_loss", self.rl_loss)
+#         tf.scalar_summary("rl_loss", self.rl_loss)
 #         self.train_op = self.optimizer.minimize(self.rl_loss)
         self.train_op = tf.train.GradientDescentOptimizer(0.0001).minimize(self.rl_loss)
-
-#         gradients = self.optimizer.compute_gradients(self.rl_loss)
-#         for grad, var in gradients:
-#             tf.histogram_summary(var.name, var)
-#             if grad is not None:
-#                 tf.histogram_summary(var.name + '/gradients', grad)
 
 #         r = tf.reduce_mean(self.rewards_pl)
 #         gradients = self.optimizer.compute_gradients(log_probs)
@@ -197,8 +187,6 @@ class Pre(object):
 #           if grad is not None:
 #               gradients[i] = (grad * r * 0.01, var)
 #         self.train_op = self.optimizer.apply_gradients(gradients)
-
-
 
     def prepare(self):
 
