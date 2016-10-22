@@ -76,10 +76,11 @@ class Board(object):
     def move(self, x, y, v):
         if v != Board.STONE_BLACK and v != Board.STONE_WHITE:
             raise Exception('illegal arg v[%d]' % (v))
-        grid = self.stones.reshape(-1, Board.BOARD_SIZE)
-        if grid[x, y] != 0:
+
+        index = np.ravel_multi_index((x, y), (Board.BOARD_SIZE, Board.BOARD_SIZE))
+        if index >= Board.BOARD_SIZE_SQ or self.stones[index] != Board.STONE_EMPTY:
             raise Exception('cannot move here')
-        grid[x, y] = v
+        self.stones[index] = v
 
     def get(self, x, y):
         return self.stones[x * Board.BOARD_SIZE + y]
