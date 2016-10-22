@@ -45,7 +45,7 @@ class Strategy(object):
         Returns:
         ------------
         board : board
-            the perferred board
+            the preferred board
         
         '''
         if not moves:
@@ -191,7 +191,7 @@ class StrategyTD(StrategyProb):
         iv[0] = 1.
         iv[1:v.shape[0] + 1] = (v == Board.STONE_BLACK).astype(int)
         iv[v.shape[0] + 1:v.shape[0] * 2 + 1] = (v == Board.STONE_WHITE).astype(int)
-        who = Game.whose_turn(board)
+        who = Game.whose_turn_now(board)
         iv[-2] = 1 if who == Board.STONE_BLACK else 0  # turn to black move
         iv[-1] = 1 if who == Board.STONE_WHITE else 0  # turn to white move
 #         print(iv.shape)
@@ -346,7 +346,6 @@ class StrategyHuman(Strategy):
             i, j = map(round, (pts[0, 0], pts[0, 1]))
             loc = int(i * Board.BOARD_SIZE + j)
             if old.stones[loc] == Board.STONE_EMPTY:
-                game.gui.move(i, j)
                 return [b for b in moves if b.stones[loc] != Board.STONE_EMPTY][0]
             else:
                 plt.title('invalid move')
@@ -354,14 +353,16 @@ class StrategyHuman(Strategy):
 
 
 class StrategyNetBot(Strategy):
-    def __init__(self):
+    def __init__(self, cond):
         super().__init__()
+        self.cond = cond
 
     def preferred_board(self, old, moves, context):
         game = context
         while True:
-            self.wait_net_event()
-            i, j = 0, 0  # map(round, (pts[0, 0], pts[0, 1]))
+            self.cond.wait()
+
+            i, j = 0, 0
             loc = int(i * Board.BOARD_SIZE + j)
             if old.stones[loc] == Board.STONE_EMPTY:
                 return [b for b in moves if b.stones[loc] != Board.STONE_EMPTY][0]
@@ -369,8 +370,8 @@ class StrategyNetBot(Strategy):
                 print('invalid move')
                 continue
 
-    def wait_net_event(self):
-        pass
+
+
 
 class StrategyRand(Strategy):
     def __init__(self):

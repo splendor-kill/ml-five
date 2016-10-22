@@ -6,25 +6,23 @@ class Game(object):
 
     on_training = False
 
-    def __init__(self, board, strat1, strat2, gui=None, observer=None):
+    def __init__(self, board, strat1, strat2, q=None, observer=None):
         self.board = board
         self.strat1 = strat1
         self.strat2 = strat2
         self.step_counter = 0
         self.exploration_counter = 0
-        self.verbose = True
         self.winner = Board.STONE_EMPTY
         self.over = False
-        self.context = {}
-        self.gui = gui
         self.whose_turn = Board.STONE_EMPTY
         self.last_loc = None
         self.wait_human = False
         self.strat1.setup()
         self.strat2.setup()
         self.observer = observer
-        if self.gui is not None:
-            self.gui.clear_board()
+        self.q = q
+        if self.q is not None:
+            self.q.put(('start',))
 
     def step(self):
         moves, self.whose_turn = Game.possible_moves(self.board)
@@ -58,45 +56,23 @@ class Game(object):
         if self.strat1 == self.strat2:
             self.strat1.stand_for = Board.oppo(self.strat1.stand_for)
 
-
-    def step1(self):
-        moves, self.whose_turn = Game.possible_moves(self.board)
-
-        strat = self.strat1 if self.whose_turn == self.strat1.stand_for else self.strat2
-        new_board = strat.preferred_board(self.board, moves, self)
-
-        if new_board.exploration:
-#             strat.setup()
-            self.exploration_counter += 1
-
-        self.over, self.winner, self.last_loc = new_board.is_over(self.board)
-
-        strat.update_at_end(self.board, new_board)
-
-        self.board = new_board
-
-        if self.strat1 == self.strat2:
-            self.strat1.stand_for = Board.oppo(self.strat1.stand_for)
-
-
     def step_to_end(self):
         if self.observer is not None:
             self.observer.on_episode_start()
         while True:
             self.step()
-
             self.step_counter += 1
 
-            if self.gui is not None:
-                self.gui.show(self)
+            if self.q is not None:
+                self.q.put(('move', self.whose_turn, self.last_loc))
 
             if self.over:
+                if self.q is not None:
+                    self.q.put(('end', self.winner,))
                 break
 
-#             print()
-
     @staticmethod
-    def whose_turn(board):
+    def whose_turn_now(board):
         '''
         Returns:
         -------------
@@ -123,7 +99,7 @@ class Game(object):
             boards: Board list
         '''
 #         whose turn is it?
-        who = Game.whose_turn(board)
+        who = Game.whose_turn_now(board)
 
 #         print("it is [%d]'s turn" % who)
 

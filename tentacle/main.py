@@ -2,11 +2,15 @@
 # print(matplotlib.get_backend())
 # print(matplotlib.is_interactive())
 # matplotlib.use('Qt4Agg')
-from _thread import start_new_thread
 import copy
 import datetime
+from queue import Queue
+import queue
 import random
 from threading import Thread
+import threading
+
+from IPython.utils.tests.test_wildcard import q
 
 import matplotlib.patches as patches
 import matplotlib.pyplot as plt
@@ -28,7 +32,6 @@ class Gui(object):
     RESULT_MSG = {Board.STONE_BLACK: 'Black Win',
                   Board.STONE_WHITE: 'White Win',
                   Board.STONE_EMPTY: 'Draw'}
-
 
 
     def __init__(self):
@@ -69,7 +72,14 @@ class Gui(object):
         self.game = None
         self.all_stones = []
         self.oppo_pool = []
+        self.msg_queue = Queue(maxsize=100)
+
+        self.timer = self.fig.canvas.new_timer(interval=50)
+        self.timer.add_callback(self.on_update)
+        self.timer.start()
+
         plt.show()
+
 
     def _handle_close(self, event):
         if self.strategy_1 is not None:
@@ -131,8 +141,6 @@ class Gui(object):
             plt.pause(600)
 
 
-        self.fig.canvas.draw()
-
     def _button_press(self, event):
         if self.state != Gui.STATE_PLAY:
             return
@@ -143,13 +151,6 @@ class Gui(object):
         i, j = map(round, (event.xdata, event.ydata))
 #         print('click at(%d, %d)' % (i, j))
 
-    def move(self, i, j):
-        s = copy.copy(self.white_stone)
-        s.center = (i, j)
-
-        p = self.ax.add_patch(s)
-        self.all_stones.append(p)
-        self.fig.canvas.draw()
 
     def which_one(self, which_side):
         if self.strategy_1 is not None and self.strategy_1.stand_for == which_side:
@@ -158,22 +159,8 @@ class Gui(object):
             return self.strategy_2
         return None
 
-    def clear_board(self):
-        print('\nclear board\n')
-
-        for s in self.all_stones:
-            s.remove()
-        self.all_stones.clear()
-        self.fig.canvas.draw()
 
     def vs_human(self, which_side_human_play):
-#         s1 = StrategyMinMax()
-#         s1.stand_for = Board.STONE_BLACK
-#         self.strategy_1 = s1
-#         s2 = StrategyMinMax()
-#         s2.stand_for = Board.STONE_WHITE
-#         self.strategy_2 = s2
-
         strategy = self.which_one(Board.oppo(which_side_human_play))
         if strategy is None or isinstance(strategy, StrategyRand):
             strategy = self.which_one(which_side_human_play)
@@ -188,30 +175,28 @@ class Gui(object):
         s2 = StrategyHuman()
         s2.stand_for = which_side_human_play
 
-        self.clear_board()
-
-        self.game = Game(Board(), s1, s2, self)
+        self.game = Game(Board(), s1, s2, self.msg_queue)
         self.game.step_to_end()
-
-        plt.title(Gui.RESULT_MSG[self.game.winner])
-        print(Gui.RESULT_MSG[self.game.winner])
-        self.fig.canvas.draw()
 
         strategy.is_learning, strategy.stand_for = old_is_learning, old_stand_for
 
 
-    def show(self, game):
-        i, j = divmod(game.last_loc, Board.BOARD_SIZE)
+    def clear_board(self):
+        print('\nclear board\n')
+        for s in self.all_stones:
+            s.remove()
+        self.all_stones.clear()
+
+    def show(self, who, loc):
+        i, j = divmod(loc, Board.BOARD_SIZE)
         s = None
-        if game.whose_turn == Board.STONE_BLACK:
+        if who == Board.STONE_BLACK:
             s = copy.copy(self.black_stone)
-        elif game.whose_turn == Board.STONE_WHITE:
+        elif who == Board.STONE_WHITE:
             s = copy.copy(self.white_stone)
         s.center = (i, j)
         self.all_stones.append(s)
         self.ax.add_patch(s)
-        self.fig.canvas.draw()
-        plt.pause(0.1)
 
     def measure_perf(self, s1, s2):
         old_epsilon1, old_is_learning1, old_stand_for1 = s1.epsilon, s1.is_learning, s1.stand_for
@@ -587,23 +572,112 @@ class Gui(object):
         np.savez('/home/splendor/fusor/stat.npz', stat=np.array(stat))
         self.strategy_1 = self.strategy_2 = s1
 
+    def on_update(self):
+        i = 0
+        redraw = False
+        while True:
+            msg = None
+            try:
+                msg = self.msg_queue.get_nowait()
+            except queue.Empty:
+                break
+            if msg is None:
+                break
+
+            print(msg[0], ' ', msg[1] if len(msg) > 1 else '')
+            if msg[0] == 'start':
+                self.clear_board()
+                redraw = True
+            elif msg[0] == 'move':
+                self.show(msg[1], msg[2])
+                redraw = True
+            elif msg[0] == 'end':
+                self.ax.set_title(Gui.RESULT_MSG[msg[1]])
+                redraw = True
+
+            self.msg_queue.task_done()
+            i += 1
+            if i >= 5:  # max msg num each time deal with
+                break
+
+        if redraw:
+            self.fig.canvas.draw()
+
     def join_net_match(self):
-#         start_new_thread(net())
+        thread = Thread(target=net, name='worker', args=(self.msg_queue,), daemon=True)
+        worker = Thread(target=self.work, name='worker', args=(self.msg_queue,), daemon=True)
 
-        thread = Thread(target=net)
         thread.start()
+        worker.start()
 
-        print('here')
-        s1 = StrategyDNN()
-        s2 = StrategyNetBot()
+    def work(self, q):
+        while True:
+            msg = q.get()
+            ans = self._dispose_msg(msg)
+            q.task_done()
+            q.put(ans)
 
-        self.clear_board()
-        self.game = Game(Board(), s1, s2, self)
-        self.game.step_to_end()
+    def _dispose_msg(self, msg):
+        print('recv:', msg)
 
-        plt.title(Gui.RESULT_MSG[self.game.winner])
-        print(Gui.RESULT_MSG[self.game.winner])
-        self.fig.canvas.draw()
+        global board
+        global first_query
+        global who_first
+
+        ans = ''
+        seq = msg.split(' ')
+        if seq[0] == 'START:':
+            board_size = int(seq[1])
+            board = Board(board_size)
+
+            s1 = StrategyDNN()
+#             s2 = StrategyNetBot(self._cv)
+#             self.strategy_1 = s1
+#             self.strategy_2 = s2
+#             self.clear_board()
+#             self.game = Game(Board(board_size), s1, s2, self.msg_queue, observer=s1)
+
+            first_query = True
+            who_first = None
+            ans = 'START: OK'
+        elif seq[0] == 'MOVE:':
+            assert len(seq) == 4, 'protocol inconsistent'
+            x, y = int(seq[1]), int(seq[2])
+            who = Board.STONE_BLACK if int(seq[3]) == 1 else Board.STONE_WHITE
+            if who_first is None:
+                who_first = who
+                print('first:', who_first)
+            if board.is_legal(x, y):
+                board.move(x, y, who)
+            ans = 'MOVE: OK'
+        elif seq[0] == 'WIN:':
+            assert len(seq) == 3, 'protocol inconsistent'
+            x, y = int(seq[1]), int(seq[2])
+            who = self.game.board.get(x, y)
+            print('player %d win the game' % (who,))
+            ans = 'WIN: OK'
+        elif seq[0] == 'UNDO:':
+            ans = 'UNDO: unsupported yet'
+        elif seq[0] == 'WHERE:':
+            if who_first is None:
+                who_first = Board.STONE_BLACK
+                print('first:', who_first)
+            if first_query:
+                s1.stand_for = self.game.board.query_stand_for(who_first)
+#                 s2.stand_for = Board.oppo(s1.stand_for)
+                print('me:', s1.stand_for)
+                first_query = False
+            assert s1.stand_for is not None
+            x, y = s1.preferred_move(board)
+            old_board = copy.deepcopy(board)
+            board.move(x, y, s1.stand_for)
+            s1.swallow(s1.stand_for, old_board, board)
+            ans = 'HERE: %d %d' % (x, y)
+        elif seq[0] == 'END:':
+#             self.strategy_1.close()
+            ans = 'END: OK'
+
+        return ans
 
 
 if __name__ == '__main__':

@@ -140,7 +140,7 @@ class StrategyANN(Strategy):
   
         iv[0:v.shape[0]] = (v == Board.STONE_BLACK).astype(int)
         iv[v.shape[0]:v.shape[0] * 2] = (v == Board.STONE_WHITE).astype(int)
-        who = Game.whose_turn(board)
+        who = Game.whose_turn_now(board)
         iv[-2] = 1 if who == Board.STONE_BLACK else 0  # turn to black move
         iv[-1] = 1 if who == Board.STONE_WHITE else 0  # turn to white move
 #         print(iv.shape)

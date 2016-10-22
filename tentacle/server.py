@@ -1,4 +1,5 @@
-from _thread import start_new_thread
+from threading import Thread
+from queue import Queue
 import random
 import socket
 import struct
@@ -32,77 +33,34 @@ def recvall(sock, count):
         count -= len(newbuf)
     return buf
 
-def dispose_msg(conn, msg):
-    print('recv:', msg)
-    global board
-    global s1
-    global first_query
-    global who_first
 
-    seq = msg.split(' ')
-    if seq[0] == 'START:':
-#          clear board
-        board_size = int(seq[1])
-        board = Board(board_size)
-        s1 = StrategyDNN(is_train=True)
-        first_query = True
-        who_first = None
-        ans = 'START: OK'
-        send_one_message(conn, ans.encode('ascii'))
-    elif seq[0] == 'MOVE:':
-        assert len(seq) == 4, 'protocol inconsistent'
-        x, y = int(seq[1]), int(seq[2])
-        who = Board.STONE_BLACK if int(seq[3]) == 1 else Board.STONE_WHITE
-        if who_first is None:
-            who_first = who
-            print('first:', who_first)
-        if board.is_legal(x, y):
-            board.move(x, y, who)
-    elif seq[0] == 'WIN:':
-        assert len(seq) == 3, 'protocol inconsistent'
-        x, y = int(seq[1]), int(seq[2])
-        who = board.get(x, y)
-        print('player %d win the game' % (who,))
-    elif seq[0] == 'UNDO:':
-        ans = 'UNDO: unsupported yet'
-        send_one_message(conn, ans.encode('ascii'))
-    elif seq[0] == 'WHERE:':
-        if who_first is None:
-            who_first = Board.STONE_BLACK
-            print('first:', who_first)
-        if first_query:
-            s1.stand_for = board.query_stand_for(who_first)
-            print('me:', s1.stand_for)
-            first_query = False
-        assert s1.stand_for is not None
-        x, y = s1.preferred_move(board)
-        board.move(x, y, s1.stand_for)
-        ans = 'HERE: %d %d' % (x, y)
-        send_one_message(conn, ans.encode('ascii'))
-    elif seq[0] == 'END:':
-        s1.close()
-        ans = 'END: OK'
-        send_one_message(conn, ans.encode('ascii'))
+class ClientThread(Thread):
+    def __init__(self, conn, msg_queue):
+        Thread.__init__(self)
+        self.conn = conn
+        self.msg_queue = msg_queue
 
-def clientthread(conn):
-    try:
-        # Sending message to connected client
-        msg = 'TOKEN: %d' % (random.randint(1, 1 << 30),)
-        send_one_message(conn, msg.encode('ascii'))
+    def run(self):
+        try:
+            msg = 'TOKEN: %d' % (random.randint(1, 1 << 30),)
+            send_one_message(self.conn, msg.encode('ascii'))
 
-        # infinite loop so that function do not terminate and thread do not end.
-        while True:
-            msg = recv_one_message(conn)
-            if msg is not None:
-                msg = msg.decode('ascii')
-                dispose_msg(conn, msg)
+            while True:
+                msg = recv_one_message(self.conn)
+                if msg is not None:
+                    msg = msg.decode('ascii')
+                    self.msg_queue.put(msg)
 
-    finally:
-        # came out of loop
-        conn.close()
+                    self.msg_queue.join()
+                    ans = self.msg_queue.get()
+                    send_one_message(self.conn, ans.encode('ascii'))
+                    self.msg_queue.task_done()
+
+        finally:
+            self.conn.close()
 
 
-def net():
+def net(msg_queue=None):
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     print('Socket created')
 
@@ -124,7 +82,8 @@ def net():
         # wait to accept a connection - blocking call
         conn, addr = s.accept()
         print('Connected with ' + addr[0] + ':' + str(addr[1]))
-        start_new_thread(clientthread, (conn,))
+        thread = ClientThread(conn, msg_queue)
+        thread.start()
 
     s.close()
 
