@@ -169,6 +169,32 @@ class Board(object):
                 return True
         return False
 
+    @staticmethod
+    def find_pattern_will_win(board, who):
+        pats = np.identity(Board.WIN_STONE_NUM, int)
+        pats = 1 - pats
+        pats[pats == 1] = who
+
+        board = board.stones.reshape(-1, Board.BOARD_SIZE)
+
+        lines = []
+        for i in range(Board.BOARD_SIZE):
+            lines.append(Board._row(board, i, 0))
+            lines.append(Board._col(board, 0, i))
+            lines.append(Board._diag(board, i, 0))
+            lines.append(Board._diag(board, 0, i))
+            lines.append(Board._diag_counter(board, i, Board.BOARD_SIZE - 1))
+            lines.append(Board._diag_counter(board, 0, i))
+
+        for v in lines:
+            if v.size < Board.WIN_STONE_NUM:
+                continue
+            for p in pats:
+                occur = Board._find_subseq(v, p)
+                if occur.size != 0:
+                    return True
+
+        return False
 
     @staticmethod
     def find_conn_5_all(board):
