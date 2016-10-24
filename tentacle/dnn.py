@@ -467,16 +467,27 @@ class Pre(object):
         self.observation.append((who, st0, action))
 
     def absorb(self, winner, **kwargs):
+        if len(self.observation) == 0:
+            return
+
+        if winner == '?':
+            winner = self.inference_who_won()
+        if winner == Board.STONE_BLACK or winner == Board.STONE_WHITE:
+            print('winner:', winner)
+            self._absorb(winner, **kwargs)
+
+
+    def _absorb(self, winner, **kwargs):
         h, w, c = self.get_input_shape()
 
         states = []
         actions = []
         rewards = []
 
-#         if winner == self.observation[0][0]:
-#             return
-
-        for who, st0, action in self.observation:
+        for who, st0, st1 in self.observation:
+            if who != kwargs['stand_for']:
+                continue
+            action = np.not_equal(st1.stones, st0.stones).astype(np.float32)
             reward = 0
             if winner != 0:
                 reward = 1 if who == winner else -1
@@ -494,13 +505,16 @@ class Pre(object):
 
         fd = {self.states_pl:states, self.actions_pl:actions, self.rewards_pl:rewards}  # [i][np.newaxis, ...]
         _, loss = self.sess.run([self.train_op, self.rl_loss], feed_dict=fd)
-#         print('reward:', rewards[-1], ', loss:', loss, ', winner:', winner, ', stand for:', self.observation[0][0])
+        print('reward:', rewards[-1], ', loss:', loss, ', winner:', winner, ', stand for:', kwargs['stand_for'])
         self.gstep += 1
+        self.stat.append((self.gstep, rewards[-1], loss, 1 if winner == kwargs['stand_for'] else 0))
 
         if (self.gstep % 100 == 0):
             summary_str = self.sess.run(self.summary_op, feed_dict=fd)
             self.summary_writer.add_summary(summary_str, self.gstep)
             self.summary_writer.flush()
+#         if (self.gstep % 10 == 0):
+        np.savez(Pre.STAT_FILE, stat=np.array(self.stat))
 
     def void(self):
         self.observation = []
@@ -513,6 +527,17 @@ class Pre(object):
             discounted_r[t] = r
         return discounted_r
 
+    def inference_who_won(self):
+        assert len(self.observation) > 0
+
+        last = self.observation[-1]
+        who, st0, st1 = last[0], last[1], last[2]
+
+        oppo = Board.oppo(who)
+        oppo_will_win = Board.find_pattern_will_win(st1, oppo)
+        if oppo_will_win:
+            return oppo
+        return Board.STONE_EMPTY
 
 if __name__ == '__main__':
     pre = Pre(is_revive=True)

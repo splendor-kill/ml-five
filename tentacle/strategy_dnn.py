@@ -91,14 +91,11 @@ class StrategyDNN(Strategy, Auditor):
         self.brain.void()
 
     def swallow(self, who, st0, st1, **kwargs):
-        if who != self.stand_for:
-            return
-
-        action = np.not_equal(st1.stones, st0.stones).astype(np.float32)
-
-        self.brain.swallow(who, st0, action, **kwargs)
+#         if who != self.stand_for:
+#             return
+        self.brain.swallow(who, st0, st1, **kwargs)
 
     def absorb(self, winner, **kwargs):
-        self.brain.absorb(winner, **kwargs)
+        self.brain.absorb(winner, stand_for=self.stand_for, **kwargs)
 
 

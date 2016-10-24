@@ -604,80 +604,8 @@ class Gui(object):
             self.fig.canvas.draw()
 
     def join_net_match(self):
-        thread = Thread(target=net, name='worker', args=(self.msg_queue,), daemon=True)
-        worker = Thread(target=self.work, name='worker', args=(self.msg_queue,), daemon=True)
-
-        thread.start()
-        worker.start()
-
-    def work(self, q):
-        while True:
-            msg = q.get()
-            ans = self._dispose_msg(msg)
-            q.task_done()
-            q.put(ans)
-
-    def _dispose_msg(self, msg):
-        print('recv:', msg)
-
-        global board
-        global first_query
-        global who_first
-
-        ans = ''
-        seq = msg.split(' ')
-        if seq[0] == 'START:':
-            board_size = int(seq[1])
-            board = Board(board_size)
-
-            s1 = StrategyDNN()
-#             s2 = StrategyNetBot(self._cv)
-#             self.strategy_1 = s1
-#             self.strategy_2 = s2
-#             self.clear_board()
-#             self.game = Game(Board(board_size), s1, s2, self.msg_queue, observer=s1)
-
-            first_query = True
-            who_first = None
-            ans = 'START: OK'
-        elif seq[0] == 'MOVE:':
-            assert len(seq) == 4, 'protocol inconsistent'
-            x, y = int(seq[1]), int(seq[2])
-            who = Board.STONE_BLACK if int(seq[3]) == 1 else Board.STONE_WHITE
-            if who_first is None:
-                who_first = who
-                print('first:', who_first)
-            if board.is_legal(x, y):
-                board.move(x, y, who)
-            ans = 'MOVE: OK'
-        elif seq[0] == 'WIN:':
-            assert len(seq) == 3, 'protocol inconsistent'
-            x, y = int(seq[1]), int(seq[2])
-            who = self.game.board.get(x, y)
-            print('player %d win the game' % (who,))
-            ans = 'WIN: OK'
-        elif seq[0] == 'UNDO:':
-            ans = 'UNDO: unsupported yet'
-        elif seq[0] == 'WHERE:':
-            if who_first is None:
-                who_first = Board.STONE_BLACK
-                print('first:', who_first)
-            if first_query:
-                s1.stand_for = self.game.board.query_stand_for(who_first)
-#                 s2.stand_for = Board.oppo(s1.stand_for)
-                print('me:', s1.stand_for)
-                first_query = False
-            assert s1.stand_for is not None
-            x, y = s1.preferred_move(board)
-            old_board = copy.deepcopy(board)
-            board.move(x, y, s1.stand_for)
-            s1.swallow(s1.stand_for, old_board, board)
-            ans = 'HERE: %d %d' % (x, y)
-        elif seq[0] == 'END:':
-#             self.strategy_1.close()
-            ans = 'END: OK'
-
-        return ans
+        net_t = Thread(target=net, args=(self.msg_queue,), daemon=True)
+        net_t.start()
 
 
 if __name__ == '__main__':
