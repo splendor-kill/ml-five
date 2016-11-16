@@ -531,7 +531,7 @@ class Gui(object):
         while True:
             print('iter:', i)
 
-            for _ in range(100):
+            for _ in range(1000):
                 s1.stand_for = random.choice([Board.STONE_BLACK, Board.STONE_WHITE])
                 s2.stand_for = Board.oppo(s1.stand_for)
 
@@ -550,7 +550,7 @@ class Gui(object):
 #                 print('stronger, oppos:', len(self.oppo_pool))
 #             elif win1 < win2:
 #                 n_lose += 1
-#
+# 
 #             if n_lose >= 50:
 #                 break
 
@@ -584,7 +584,7 @@ class Gui(object):
             if msg is None:
                 break
 
-            print(msg[0], ' ', msg[1] if len(msg) > 1 else '')
+#             print(msg[0], ' ', msg[1] if len(msg) > 1 else '')
             if msg[0] == 'start':
                 self.clear_board()
                 redraw = True
