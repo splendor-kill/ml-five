@@ -1,4 +1,4 @@
-from numpy import random, float64
+from numpy import random
 from pybrain.datasets.supervised import SupervisedDataSet
 from pybrain.structure.networks.custom.convboard import ConvolutionalBoardNetwork
 from pybrain.supervised.trainers.backprop import BackpropTrainer

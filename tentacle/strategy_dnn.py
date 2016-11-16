@@ -11,7 +11,12 @@ from tentacle.strategy import Strategy, Auditor
 class StrategyDNN(Strategy, Auditor):
     def __init__(self, is_train=False, is_revive=True):
         super().__init__()
-#         self.brain = Pre(is_train=False, is_revive=True)
+        self.init_exp = 0.5  # initial exploration prob
+        self.final_exp = 0.001  # final exploration prob
+        self.anneal_steps = 5000  # N steps for annealing exploration
+        self.absorb_progress = 0
+        self.exploration = self.init_exp
+
         self.brain = DCNN3(is_train, is_revive)
         self.brain.run()
 
@@ -34,7 +39,7 @@ class StrategyDNN(Strategy, Auditor):
         state, legal = self.get_input_values(v)
         probs = self.brain.get_move_probs(state)
 
-        if np.random.rand() < 0.03:
+        if np.random.rand() < self.exploration:
             rand_loc = np.random.choice(np.where(v == Board.STONE_EMPTY)[0], 1)[0]
             loc = np.unravel_index(rand_loc, (Board.BOARD_SIZE, Board.BOARD_SIZE))
 #             print('explore at:', loc)
@@ -97,5 +102,10 @@ class StrategyDNN(Strategy, Auditor):
 
     def absorb(self, winner, **kwargs):
         self.brain.absorb(winner, stand_for=self.stand_for, **kwargs)
+        self.absorb_progress += 1
+        self.annealExploration()
 
+    def annealExploration(self):
+        ratio = max((self.anneal_steps - self.absorb_progress) / float(self.anneal_steps), 0)
+        self.exploration = (self.init_exp - self.final_exp) * ratio + self.final_exp
 

@@ -25,43 +25,34 @@ class DCNN3(Pre):
         return states, actions
 
     def model(self, states_pl, actions_pl):
-        ch1 = 32
-        W_1 = self.weight_variable([3, 3, Pre.NUM_CHANNELS, ch1])
-        b_1 = self.bias_variable([ch1])
+        with tf.variable_scope("policy_net"):
+            self.predictions = self.create_policy_net(states_pl)
+        with tf.variable_scope("value_net"):
+            self.value_outputs = self.create_value_net(states_pl)
 
-        ch = 32
-        W_2 = self.weight_variable([3, 3, ch1, ch])
-        b_2 = self.bias_variable([ch])
-        W_21 = self.weight_variable([3, 3, ch, ch])
-        b_21 = self.bias_variable([ch])
-        W_22 = self.weight_variable([3, 3, ch, ch])
-        b_22 = self.bias_variable([ch])
+        self.policy_net_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope="policy_net")
 
+        pg_loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(self.predictions, actions_pl))
+        reg_loss = tf.reduce_sum([tf.reduce_sum(tf.square(x)) for x in self.policy_net_vars])
+        self.loss = pg_loss + 0.001 * reg_loss
 
-        self.h_conv1 = tf.nn.relu(tf.nn.conv2d(states_pl, W_1, [1, 1, 1, 1], padding='SAME') + b_1)
-        self.h_conv2 = tf.nn.relu(tf.nn.conv2d(self.h_conv1, W_2, [1, 1, 1, 1], padding='SAME') + b_2)
-        h_conv21 = tf.nn.relu(tf.nn.conv2d(self.h_conv2, W_21, [1, 1, 1, 1], padding='SAME') + b_21)
-        h_conv22 = tf.nn.relu(tf.nn.conv2d(h_conv21, W_22, [1, 1, 1, 1], padding='SAME') + b_22)
+        tf.scalar_summary("raw_policy_loss", pg_loss)
+        tf.scalar_summary("reg_policy_loss", reg_loss)
+        tf.scalar_summary("all_policy_loss", self.loss)
 
-        dim = h_conv22.get_shape()[1:].num_elements()
-        h_conv_out = tf.reshape(h_conv22, [-1, dim])
-
-        num_hidden = 128
-        W_3 = self.weight_variable([dim, num_hidden])
-        b_3 = self.bias_variable([num_hidden])
-        W_4 = self.weight_variable([num_hidden, Pre.NUM_ACTIONS])
-        b_4 = self.bias_variable([Pre.NUM_ACTIONS])
-
-        self.hidden = tf.nn.relu(tf.matmul(h_conv_out, W_3) + b_3)
-        self.predictions = tf.matmul(self.hidden, W_4) + b_4
-
-
-        self.reg_loss = tf.reduce_sum([tf.reduce_sum(tf.square(x)) for x in tf.trainable_variables()])
-        self.cross_entropy = tf.nn.softmax_cross_entropy_with_logits(self.predictions, actions_pl)
-        self.loss = tf.reduce_mean(self.cross_entropy) + 0.001 * self.reg_loss
-#         self.loss = tf.reduce_mean(-tf.reduce_sum(tf.nn.log_softmax(self.predictions) * actions_pl, reduction_indices=1))
-        tf.scalar_summary("loss", self.loss)
         self.optimizer = tf.train.AdamOptimizer()
+
+#         self.policy_grads = self.optimizer.compute_gradients(self.loss, self.policy_net_vars)
+#         for i, (grad, var) in enumerate(self.policy_grads):
+#             if grad is not None:
+#                 self.policy_grads[i] = (tf.clip_by_norm(grad, 5), var)
+#         self.opt_op = self.optimizer.apply_gradients(self.policy_grads)
+
+#         for grad, var in self.policy_grads:
+#             tf.histogram_summary(var.name, var)
+#             if grad is not None:
+#                 tf.histogram_summary(var.name + '/policy_grads', grad)
+
         self.opt_op = self.optimizer.minimize(self.loss)
 
         self.predict_probs = tf.nn.softmax(self.predictions)
@@ -75,6 +66,53 @@ class DCNN3(Pre):
 
         self.rl_op(actions_pl)
 
+    def create_conv_net(self, states_pl):
+        ch1 = 32
+        W_1 = self.weight_variable([3, 3, Pre.NUM_CHANNELS, ch1])
+        b_1 = self.bias_variable([ch1])
+
+        ch = 32
+        W_2 = self.weight_variable([3, 3, ch1, ch])
+        b_2 = self.bias_variable([ch])
+        W_21 = self.weight_variable([3, 3, ch, ch])
+        b_21 = self.bias_variable([ch])
+        W_22 = self.weight_variable([3, 3, ch, ch])
+        b_22 = self.bias_variable([ch])
+
+        h_conv1 = tf.nn.relu(tf.nn.conv2d(states_pl, W_1, [1, 1, 1, 1], padding='SAME') + b_1)
+        h_conv2 = tf.nn.relu(tf.nn.conv2d(h_conv1, W_2, [1, 1, 1, 1], padding='SAME') + b_2)
+        h_conv21 = tf.nn.relu(tf.nn.conv2d(h_conv2, W_21, [1, 1, 1, 1], padding='SAME') + b_21)
+        h_conv22 = tf.nn.relu(tf.nn.conv2d(h_conv21, W_22, [1, 1, 1, 1], padding='SAME') + b_22)
+
+        self.conv_out_dim = h_conv22.get_shape()[1:].num_elements()
+        conv_out = tf.reshape(h_conv22, [-1, self.conv_out_dim])
+        return conv_out
+
+    def create_policy_net(self, states_pl):
+        conv = self.create_conv_net(states_pl)
+        conv = tf.identity(conv, 'policy_net_conv')
+        num_hidden = 128
+        W_3 = self.weight_variable([self.conv_out_dim, num_hidden])
+        b_3 = self.bias_variable([num_hidden])
+        W_4 = self.weight_variable([num_hidden, Pre.NUM_ACTIONS])
+        b_4 = self.bias_variable([Pre.NUM_ACTIONS])
+
+        hidden = tf.nn.tanh(tf.matmul(conv, W_3) + b_3)
+        fc_out = tf.matmul(hidden, W_4) + b_4
+        return fc_out
+
+    def create_value_net(self, states_pl):
+        conv = self.create_conv_net(states_pl)
+        conv = tf.identity(conv, 'value_net_conv')
+        num_hidden = 128
+        W_3 = tf.Variable(tf.zeros([self.conv_out_dim, num_hidden], tf.float32))
+        b_3 = tf.Variable(tf.zeros([num_hidden], tf.float32))
+        W_4 = tf.Variable(tf.zeros([num_hidden, 1], tf.float32))
+        b_4 = tf.Variable(tf.zeros([1], tf.float32))
+
+        hidden = tf.nn.tanh(tf.matmul(conv, W_3) + b_3)
+        fc_out = tf.matmul(hidden, W_4) + b_4
+        return fc_out
 
     def forge(self, row):
         board = row[:Board.BOARD_SIZE_SQ]
@@ -139,8 +177,4 @@ class DCNN3(Pre):
 
 if __name__ == '__main__':
     n = DCNN3(is_revive=False)
-    n.deploy()
     n.run()
-
-
-

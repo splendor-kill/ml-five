@@ -68,7 +68,7 @@ class Pre(object):
         self.gap = 0
         self.sparse_labels = False
         self.observation = []
-        self.is_rl = True
+        self.is_rl = False
 
     def placeholder_inputs(self):
         h, w, c = self.get_input_shape()
@@ -156,37 +156,35 @@ class Pre(object):
 
         # SARSA: alpha * [r + gamma * Q(s', a') - Q(s, a)] * grad
         # Q: alpha * [r + gamma * max<a>Q(s', a) − Q(s, a)] * grad
-#         maxa = tf.reduce_max(self.predict_probs, reduction_indices=1)
-#         qsa = tf.boolean_mask(self.predict_probs, tf.cast(actions_pl, tf.bool))
-#         delta = self.rewards_pl + 0.95 * maxa - qsa
-#         print('delta shape:', delta.get_shape())
-#         delta = tf.reduce_mean(delta)
-#         gradients = self.optimizer.compute_gradients(self.predict_probs)
+
+        value_net_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope="value_net")
+        self.advantages = tf.reduce_sum(self.rewards_pl - self.value_outputs)
+
+        self.policy_grads = self.optimizer.compute_gradients(self.loss, self.policy_net_vars)
+        for i, (grad, var) in enumerate(self.policy_grads):
+            if grad is not None:
+                self.policy_grads[i] = (grad * self.advantages, var)
+
+        mean_square_loss = tf.reduce_mean(tf.square(self.rewards_pl - self.value_outputs))
+        value_reg_loss = tf.reduce_sum([tf.reduce_sum(tf.square(x)) for x in value_net_vars])
+        self.value_loss = mean_square_loss + 0.001 * value_reg_loss
+#         self.value_grads = self.optimizer.compute_gradients(self.value_loss, value_net_vars)
+
+#         gradients = self.value_grads
+#         gradients = self.policy_grads + self.value_grads
+
 #         for i, (grad, var) in enumerate(gradients):
-#             tf.histogram_summary(var.name, var)
 #             if grad is not None:
-#                 tf.histogram_summary(var.name + '/gradients', grad)
-#                 gradients[i] = (0.001 * grad * delta, var)
+#                 gradients[i] = (tf.clip_by_norm(grad, 5), var)
+
+        tf.histogram_summary("value_outputs", self.value_outputs)
+        tf.histogram_summary("advantages", self.advantages)
+        tf.scalar_summary("raw_value_loss", mean_square_loss)
+        tf.scalar_summary("reg_value_loss", value_reg_loss)
+        tf.scalar_summary("all_value_loss", self.value_loss)
+
 #         self.train_op = self.optimizer.apply_gradients(gradients)
-
-        log_probs = tf.nn.log_softmax(self.predictions)
-        diag_rewards = tf.diag(self.rewards_pl)
-#         print('log_probs:', log_probs.get_shape(), 'reward:', self.rewards_pl.get_shape(), 'pred:', self.predictions.get_shape(), 'xe:', self.cross_entropy.get_shape())
-        self.rl_loss = tf.reduce_mean(tf.matmul(diag_rewards, log_probs))
-#         self.rl_loss = -tf.reduce_mean(tf.mul(self.rewards_pl, self.cross_entropy))
-#         self.rl_loss = self.loss
-#         self.rl_loss = tf.cond(tf.less(tf.reduce_mean(self.rewards_pl), 0), lambda: tf.reduce_mean(-self.cross_entropy) + 0.001 * self.reg_loss, lambda: self.loss)
-
-#         tf.scalar_summary("rl_loss", self.rl_loss)
-#         self.train_op = self.optimizer.minimize(self.rl_loss)
-        self.train_op = tf.train.GradientDescentOptimizer(0.0001).minimize(self.rl_loss)
-
-#         r = tf.reduce_mean(self.rewards_pl)
-#         gradients = self.optimizer.compute_gradients(log_probs)
-#         for i, (grad, var) in enumerate(gradients):
-#           if grad is not None:
-#               gradients[i] = (grad * r * 0.01, var)
-#         self.train_op = self.optimizer.apply_gradients(gradients)
+        self.train_op = self.optimizer.minimize(self.value_loss)
 
     def prepare(self):
 
@@ -196,7 +194,7 @@ class Pre(object):
 
             self.summary_op = tf.merge_all_summaries()
 
-            self.saver = tf.train.Saver()
+            self.saver = tf.train.Saver(tf.trainable_variables())
 
             init = tf.initialize_all_variables()
 
@@ -473,7 +471,7 @@ class Pre(object):
         if winner == '?':
             winner = self.inference_who_won()
         if winner == Board.STONE_BLACK or winner == Board.STONE_WHITE:
-            print('winner:', winner)
+#             print('winner:', winner)
             self._absorb(winner, **kwargs)
 
 
@@ -504,10 +502,11 @@ class Pre(object):
 #         rewards = self.discount_episode_rewards(rewards)
 
         fd = {self.states_pl:states, self.actions_pl:actions, self.rewards_pl:rewards}  # [i][np.newaxis, ...]
-        _, loss = self.sess.run([self.train_op, self.rl_loss], feed_dict=fd)
-        print('reward:', rewards[-1], ', loss:', loss, ', winner:', winner, ', stand for:', kwargs['stand_for'])
+        _, _, pg_loss, value_loss = self.sess.run([self.train_op, self.opt_op, self.loss, self.value_loss], feed_dict=fd)
+        print('reward: {:>2d}, policy net loss: {:6.3f}, value net loss: {:7.3f}, winner: {:d}, stand for: {:d}'
+              .format(rewards[-1], pg_loss, value_loss, winner, kwargs['stand_for']))
         self.gstep += 1
-        self.stat.append((self.gstep, rewards[-1], loss, 1 if winner == kwargs['stand_for'] else 0))
+        self.stat.append((self.gstep, rewards[-1], pg_loss, 1 if winner == kwargs['stand_for'] else 0))
 
         if (self.gstep % 100 == 0):
             summary_str = self.sess.run(self.summary_op, feed_dict=fd)
@@ -540,7 +539,7 @@ class Pre(object):
         return Board.STONE_EMPTY
 
 if __name__ == '__main__':
-    pre = Pre(is_revive=True)
+    pre = Pre(is_revive=False)
     pre.deploy()
     pre.run()
 
