@@ -517,9 +517,9 @@ class Gui(object):
 
     def reinforce(self):
         if len(self.oppo_pool) == 0:
-            self.oppo_pool.append(StrategyDNN(is_train=False, is_revive=True))
+            self.oppo_pool.append(StrategyDNN(is_train=False, is_revive=True, is_rl=False))
 
-        s1 = StrategyDNN(is_train=False, is_revive=True)
+        s1 = StrategyDNN(is_train=False, is_revive=True, is_rl=True)
         s2 = random.choice(self.oppo_pool)
 
         stat = []
@@ -543,7 +543,6 @@ class Gui(object):
 
 #             if win1 > win2:
 #                 s1_c = s1.mind_clone()
-#                 s1_c.is_train = False
 #                 self.oppo_pool.append(s1_c)
 #                 s2 = random.choice(self.oppo_pool)
 #                 n_lose = 0
