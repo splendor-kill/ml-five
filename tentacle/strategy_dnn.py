@@ -9,15 +9,15 @@ from tentacle.strategy import Strategy, Auditor
 
 
 class StrategyDNN(Strategy, Auditor):
-    def __init__(self, is_train=False, is_revive=True):
+    def __init__(self, is_train=False, is_revive=True, is_rl=False):
         super().__init__()
-        self.init_exp = 0.5  # initial exploration prob
-        self.final_exp = 0.001  # final exploration prob
-        self.anneal_steps = 5000  # N steps for annealing exploration
+        self.init_exp = 0.1  # initial exploration prob
+        self.final_exp = 0.003  # final exploration prob
+        self.anneal_steps = 9000  # N steps for annealing exploration
         self.absorb_progress = 0
         self.exploration = self.init_exp
 
-        self.brain = DCNN3(is_train, is_revive)
+        self.brain = DCNN3(is_train, is_revive, is_rl)
         self.brain.run()
 
     def update_at_end(self, old, new):
@@ -39,14 +39,16 @@ class StrategyDNN(Strategy, Auditor):
         state, legal = self.get_input_values(v)
         probs = self.brain.get_move_probs(state)
 
-        if np.random.rand() < self.exploration:
+        if np.random.rand() < (self.exploration if self.brain.is_rl else self.final_exp):
             rand_loc = np.random.choice(np.where(v == Board.STONE_EMPTY)[0], 1)[0]
             loc = np.unravel_index(rand_loc, (Board.BOARD_SIZE, Board.BOARD_SIZE))
 #             print('explore at:', loc)
             return loc
         else:
-#             best_move = np.argmax(np.random.multinomial(1, probs[0] - np.finfo(np.float32).epsneg))
             best_move = np.argmax(probs, 1)[0]
+#             if self.brain.is_rl:
+#                 best_move = np.argmax(np.random.multinomial(1, probs[0] - np.finfo(np.float32).epsneg))
+#
             loc = np.unravel_index(best_move, (Board.BOARD_SIZE, Board.BOARD_SIZE))
             is_legal = board.is_legal(loc[0], loc[1])
             if not is_legal:
@@ -87,7 +89,7 @@ class StrategyDNN(Strategy, Auditor):
     def mind_clone(self):
         self.brain.save_params()
 
-        return StrategyDNN(False, True)
+        return StrategyDNN(False, True, False)
 
     def close(self):
         self.brain.close()
@@ -96,8 +98,8 @@ class StrategyDNN(Strategy, Auditor):
         self.brain.void()
 
     def swallow(self, who, st0, st1, **kwargs):
-#         if who != self.stand_for:
-#             return
+        if who != self.stand_for:
+            return
         self.brain.swallow(who, st0, st1, **kwargs)
 
     def absorb(self, winner, **kwargs):
@@ -106,6 +108,7 @@ class StrategyDNN(Strategy, Auditor):
         self.annealExploration()
 
     def annealExploration(self):
-        ratio = max((self.anneal_steps - self.absorb_progress) / float(self.anneal_steps), 0)
-        self.exploration = (self.init_exp - self.final_exp) * ratio + self.final_exp
+#         ratio = max((self.anneal_steps - self.absorb_progress) / float(self.anneal_steps), 0)
+#         self.exploration = (self.init_exp - self.final_exp) * ratio + self.final_exp
+        self.exploration = 0.03
 

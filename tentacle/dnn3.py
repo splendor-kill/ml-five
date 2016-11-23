@@ -12,8 +12,8 @@ from tentacle.ds_loader import DatasetLoader
 
 
 class DCNN3(Pre):
-    def __init__(self, is_train=True, is_revive=False):
-        super().__init__(is_train, is_revive)
+    def __init__(self, is_train=True, is_revive=False, is_rl=False):
+        super().__init__(is_train, is_revive, is_rl)
         self.loader_train = DatasetLoader(Pre.DATA_SET_TRAIN)
         self.loader_valid = DatasetLoader(Pre.DATA_SET_VALID)
         self.loader_test = DatasetLoader(Pre.DATA_SET_TEST)
@@ -34,29 +34,16 @@ class DCNN3(Pre):
 
         pg_loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(self.predictions, actions_pl))
         reg_loss = tf.reduce_sum([tf.reduce_sum(tf.square(x)) for x in self.policy_net_vars])
-        self.loss = pg_loss + 0.001 * reg_loss
+        self.loss = pg_loss  # + 0.001 * reg_loss
 
         tf.scalar_summary("raw_policy_loss", pg_loss)
         tf.scalar_summary("reg_policy_loss", reg_loss)
         tf.scalar_summary("all_policy_loss", self.loss)
 
-        self.optimizer = tf.train.AdamOptimizer()
-
-#         self.policy_grads = self.optimizer.compute_gradients(self.loss, self.policy_net_vars)
-#         for i, (grad, var) in enumerate(self.policy_grads):
-#             if grad is not None:
-#                 self.policy_grads[i] = (tf.clip_by_norm(grad, 5), var)
-#         self.opt_op = self.optimizer.apply_gradients(self.policy_grads)
-
-#         for grad, var in self.policy_grads:
-#             tf.histogram_summary(var.name, var)
-#             if grad is not None:
-#                 tf.histogram_summary(var.name + '/policy_grads', grad)
-
+        self.optimizer = tf.train.AdamOptimizer(0.0001)
         self.opt_op = self.optimizer.minimize(self.loss)
 
         self.predict_probs = tf.nn.softmax(self.predictions)
-
         eq = tf.equal(tf.argmax(self.predict_probs, 1), tf.argmax(actions_pl, 1))
 
 #         best_move = tf.argmax(actions_pl, 1)

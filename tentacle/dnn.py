@@ -53,7 +53,7 @@ class Pre(object):
     DATA_SET_ZIP_FILE = '/home/splendor/fusor/dataset.zip'
     BRAIN_ZIP_FILE = '/home/splendor/fusor/brain.zip'
 
-    def __init__(self, is_train=True, is_revive=False):
+    def __init__(self, is_train=True, is_revive=False, is_rl=False):
         self.is_train = is_train
         self.is_revive = is_revive
         self._file_read_index = 0
@@ -68,7 +68,9 @@ class Pre(object):
         self.gap = 0
         self.sparse_labels = False
         self.observation = []
-        self.is_rl = False
+        self.is_rl = is_rl
+        self.starter_learning_rate = 0.001
+        self.rl_global_step = 0
 
     def placeholder_inputs(self):
         h, w, c = self.get_input_shape()
@@ -158,33 +160,38 @@ class Pre(object):
         # Q: alpha * [r + gamma * max<a>Q(s', a) − Q(s, a)] * grad
 
         value_net_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope="value_net")
-        self.advantages = tf.reduce_sum(self.rewards_pl - self.value_outputs)
+        delta = self.rewards_pl  # - self.value_outputs
+        self.advantages = tf.reduce_mean(delta)
+
+        learning_rate = tf.train.exponential_decay(self.starter_learning_rate, self.rl_global_step, 500, 0.96, staircase=True)
 
         self.policy_grads = self.optimizer.compute_gradients(self.loss, self.policy_net_vars)
-        for i, (grad, var) in enumerate(self.policy_grads):
-            if grad is not None:
-                self.policy_grads[i] = (grad * self.advantages, var)
-
-        mean_square_loss = tf.reduce_mean(tf.square(self.rewards_pl - self.value_outputs))
-        value_reg_loss = tf.reduce_sum([tf.reduce_sum(tf.square(x)) for x in value_net_vars])
-        self.value_loss = mean_square_loss + 0.001 * value_reg_loss
-#         self.value_grads = self.optimizer.compute_gradients(self.value_loss, value_net_vars)
-
-#         gradients = self.value_grads
-#         gradients = self.policy_grads + self.value_grads
-
-#         for i, (grad, var) in enumerate(gradients):
+#         for i, (grad, var) in enumerate(self.policy_grads):
 #             if grad is not None:
-#                 gradients[i] = (tf.clip_by_norm(grad, 5), var)
+#                 self.policy_grads[i] = (-grad * self.advantages, var)
+#         self.policy_opt_op = tf.train.GradientDescentOptimizer(learning_rate).apply_gradients(self.policy_grads)
 
-        tf.histogram_summary("value_outputs", self.value_outputs)
-        tf.histogram_summary("advantages", self.advantages)
+        mean_square_loss = tf.reduce_mean(tf.squared_difference(self.rewards_pl, self.value_outputs))
+        value_reg_loss = tf.reduce_sum([tf.reduce_sum(tf.square(x)) for x in value_net_vars])
+        self.value_loss = mean_square_loss  # + 0.001 * value_reg_loss
+
+        self.value_grads = self.optimizer.compute_gradients(self.value_loss, value_net_vars)
+        grads = self.policy_grads  # + self.value_grads
+        for i, (grad, var) in enumerate(grads):
+            if grad is not None:
+                grads[i] = (-grad * self.advantages, var)
+#         self.value_opt_op = tf.train.GradientDescentOptimizer(0.0001).apply_gradients(self.value_grads)
+        self.train_op = tf.train.GradientDescentOptimizer(0.0001).apply_gradients(grads)
+
+#         for grad, var in self.value_grads:
+#             tf.histogram_summary(var.name, var)
+#             if grad is not None:
+#                 tf.histogram_summary(var.name + '/its_grads', grad)
+
+        tf.scalar_summary("advantages", self.advantages)
         tf.scalar_summary("raw_value_loss", mean_square_loss)
         tf.scalar_summary("reg_value_loss", value_reg_loss)
         tf.scalar_summary("all_value_loss", self.value_loss)
-
-#         self.train_op = self.optimizer.apply_gradients(gradients)
-        self.train_op = self.optimizer.minimize(self.value_loss)
 
     def prepare(self):
 
@@ -502,17 +509,17 @@ class Pre(object):
 #         rewards = self.discount_episode_rewards(rewards)
 
         fd = {self.states_pl:states, self.actions_pl:actions, self.rewards_pl:rewards}  # [i][np.newaxis, ...]
-        _, _, pg_loss, value_loss = self.sess.run([self.train_op, self.opt_op, self.loss, self.value_loss], feed_dict=fd)
-        print('reward: {:>2d}, policy net loss: {:6.3f}, value net loss: {:7.3f}, winner: {:d}, stand for: {:d}'
-              .format(rewards[-1], pg_loss, value_loss, winner, kwargs['stand_for']))
-        self.gstep += 1
-        self.stat.append((self.gstep, rewards[-1], pg_loss, 1 if winner == kwargs['stand_for'] else 0))
+        _, pg_loss, value_loss = self.sess.run([self.train_op, self.loss, self.value_loss], feed_dict=fd)
+        print('reward: {:>2d}, winner: {:d}, stand for: {:d}, policy net loss: {:6.3f}, value net loss: {:7.3f}'
+              .format(rewards[-1], winner, kwargs['stand_for'], pg_loss, value_loss))
+        self.rl_global_step += 1
+        self.stat.append((self.rl_global_step, rewards[-1], pg_loss, 1 if winner == kwargs['stand_for'] else 0))
 
-        if (self.gstep % 100 == 0):
+        if (self.rl_global_step % 100 == 0):
             summary_str = self.sess.run(self.summary_op, feed_dict=fd)
-            self.summary_writer.add_summary(summary_str, self.gstep)
+            self.summary_writer.add_summary(summary_str, self.rl_global_step)
             self.summary_writer.flush()
-#         if (self.gstep % 10 == 0):
+#         if (self.rl_global_step % 10 == 0):
         np.savez(Pre.STAT_FILE, stat=np.array(self.stat))
 
     def void(self):
