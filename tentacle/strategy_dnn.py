@@ -13,7 +13,7 @@ class StrategyDNN(Strategy, Auditor):
         super().__init__()
         self.init_exp = 0.1  # initial exploration prob
         self.final_exp = 0.003  # final exploration prob
-        self.anneal_steps = 9000  # N steps for annealing exploration
+        self.anneal_steps = 90000  # N steps for annealing exploration
         self.absorb_progress = 0
         self.exploration = self.init_exp
 
@@ -108,7 +108,7 @@ class StrategyDNN(Strategy, Auditor):
         self.annealExploration()
 
     def annealExploration(self):
-#         ratio = max((self.anneal_steps - self.absorb_progress) / float(self.anneal_steps), 0)
-#         self.exploration = (self.init_exp - self.final_exp) * ratio + self.final_exp
-        self.exploration = 0.03
+        ratio = max((self.anneal_steps - self.absorb_progress) / float(self.anneal_steps), 0)
+        self.exploration = (self.init_exp - self.final_exp) * ratio + self.final_exp
+#         self.exploration = 0.03
 

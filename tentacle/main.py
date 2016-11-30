@@ -526,7 +526,7 @@ class Gui(object):
         win1, win2, draw = 0, 0, 0
 
         n_lose = 0
-        iter_n = 10
+        iter_n = 100
         i = 0
         while True:
             print('iter:', i)

@@ -71,6 +71,7 @@ class Pre(object):
         self.is_rl = is_rl
         self.starter_learning_rate = 0.001
         self.rl_global_step = 0
+        self.replay_memory = [[], [], []]
 
     def placeholder_inputs(self):
         h, w, c = self.get_input_shape()
@@ -160,7 +161,7 @@ class Pre(object):
         # Q: alpha * [r + gamma * max<a>Q(s', a) − Q(s, a)] * grad
 
         value_net_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope="value_net")
-        delta = self.rewards_pl  # - self.value_outputs
+        delta = self.rewards_pl - self.value_outputs
         self.advantages = tf.reduce_mean(delta)
 
         learning_rate = tf.train.exponential_decay(self.starter_learning_rate, self.rl_global_step, 500, 0.96, staircase=True)
@@ -176,12 +177,12 @@ class Pre(object):
         self.value_loss = mean_square_loss  # + 0.001 * value_reg_loss
 
         self.value_grads = self.optimizer.compute_gradients(self.value_loss, value_net_vars)
-        grads = self.policy_grads  # + self.value_grads
+        grads = self.policy_grads + self.value_grads
         for i, (grad, var) in enumerate(grads):
             if grad is not None:
                 grads[i] = (-grad * self.advantages, var)
 #         self.value_opt_op = tf.train.GradientDescentOptimizer(0.0001).apply_gradients(self.value_grads)
-        self.train_op = tf.train.GradientDescentOptimizer(0.0001).apply_gradients(grads)
+        self.train_op = self.optimizer.apply_gradients(grads)
 
 #         for grad, var in self.value_grads:
 #             tf.histogram_summary(var.name, var)
@@ -502,11 +503,26 @@ class Pre(object):
             actions.append(action)
             rewards.append(reward)
 
+#         rewards[:-1] = 0.
+#         rewards = self.discount_episode_rewards(rewards)
+        self.replay_memory[0] += states
+        self.replay_memory[1] += actions
+        self.replay_memory[2] += rewards
+
+        if len(self.replay_memory[2]) < 1000:
+            return
+
+        states = self.replay_memory[0]
+        actions = self.replay_memory[1]
+        reward = self.replay_memory[2]
+
         states = np.vstack(states)
         actions = np.vstack(actions)
         rewards = np.array(rewards)
-#         rewards[:-1] = 0.
-#         rewards = self.discount_episode_rewards(rewards)
+
+        self.replay_memory[0].clear()
+        self.replay_memory[1].clear()
+        self.replay_memory[2].clear()
 
         fd = {self.states_pl:states, self.actions_pl:actions, self.rewards_pl:rewards}  # [i][np.newaxis, ...]
         _, pg_loss, value_loss = self.sess.run([self.train_op, self.loss, self.value_loss], feed_dict=fd)
