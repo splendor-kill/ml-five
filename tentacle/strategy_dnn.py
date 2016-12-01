@@ -11,9 +11,9 @@ from tentacle.strategy import Strategy, Auditor
 class StrategyDNN(Strategy, Auditor):
     def __init__(self, is_train=False, is_revive=True, is_rl=False):
         super().__init__()
-        self.init_exp = 0.1  # initial exploration prob
+        self.init_exp = 0.3  # initial exploration prob
         self.final_exp = 0.003  # final exploration prob
-        self.anneal_steps = 90000  # N steps for annealing exploration
+        self.anneal_steps = 90*1000  # N steps for annealing exploration
         self.absorb_progress = 0
         self.exploration = self.init_exp
 

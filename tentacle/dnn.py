@@ -12,6 +12,7 @@ import numpy as np
 import tensorflow as tf
 from tentacle.board import Board
 from tentacle.data_set import DataSet
+from dask.array.random import gamma
 
 
 class RingBuffer():
@@ -71,7 +72,15 @@ class Pre(object):
         self.is_rl = is_rl
         self.starter_learning_rate = 0.001
         self.rl_global_step = 0
-        self.replay_memory = [[], [], []]
+
+        self.replay_memory_size = 30000
+        h, w, c = self.get_input_shape()
+        self.replay_memory0 = np.zeros([self.replay_memory_size, h * w * c], dtype=np.float32)
+        self.replay_memory1 = np.zeros([self.replay_memory_size, Pre.NUM_ACTIONS], dtype=np.float32)
+        self.replay_memory2 = np.zeros(self.replay_memory_size, dtype=np.float32)
+        self.replay_memory_write_cursor = 0
+        self.replay_memory_is_full = False
+
 
     def placeholder_inputs(self):
         h, w, c = self.get_input_shape()
@@ -167,9 +176,9 @@ class Pre(object):
         learning_rate = tf.train.exponential_decay(self.starter_learning_rate, self.rl_global_step, 500, 0.96, staircase=True)
 
         self.policy_grads = self.optimizer.compute_gradients(self.loss, self.policy_net_vars)
-#         for i, (grad, var) in enumerate(self.policy_grads):
-#             if grad is not None:
-#                 self.policy_grads[i] = (-grad * self.advantages, var)
+        for i, (grad, var) in enumerate(self.policy_grads):
+            if grad is not None:
+                self.policy_grads[i] = (-grad * self.advantages, var)
 #         self.policy_opt_op = tf.train.GradientDescentOptimizer(learning_rate).apply_gradients(self.policy_grads)
 
         mean_square_loss = tf.reduce_mean(tf.squared_difference(self.rewards_pl, self.value_outputs))
@@ -180,9 +189,9 @@ class Pre(object):
         grads = self.policy_grads + self.value_grads
         for i, (grad, var) in enumerate(grads):
             if grad is not None:
-                grads[i] = (-grad * self.advantages, var)
+                grads[i] = (tf.clip_by_norm(grad, 5.0), var)
 #         self.value_opt_op = tf.train.GradientDescentOptimizer(0.0001).apply_gradients(self.value_grads)
-        self.train_op = self.optimizer.apply_gradients(grads)
+        self.train_op = tf.train.GradientDescentOptimizer(0.0001).apply_gradients(grads)
 
 #         for grad, var in self.value_grads:
 #             tf.histogram_summary(var.name, var)
@@ -486,10 +495,13 @@ class Pre(object):
     def _absorb(self, winner, **kwargs):
         h, w, c = self.get_input_shape()
 
-        states = []
-        actions = []
-        rewards = []
+        gamma = 0.96
 
+        result_steps = len(self.observation)
+        assert result_steps > 0
+        quick_win_factor = -1.0 * result_steps
+        decay_coeff = gamma ** (result_steps - 1)
+        result_of_this_game = 0
         for who, st0, st1 in self.observation:
             if who != kwargs['stand_for']:
                 continue
@@ -497,37 +509,32 @@ class Pre(object):
             reward = 0
             if winner != 0:
                 reward = 1 if who == winner else -1
+            result_of_this_game = reward
             state, _ = self.adapt_state(st0.stones)
-            state = state.reshape((-1, h, w, c))
-            states.append(state)
-            actions.append(action)
-            rewards.append(reward)
+            self.replay_memory0[self.replay_memory_write_cursor, :] = state
+            self.replay_memory1[self.replay_memory_write_cursor, :] = action
+            reward *= decay_coeff
+            self.replay_memory2[self.replay_memory_write_cursor] = reward
+            decay_coeff /= gamma
+            self.replay_memory_write_cursor += 1
+            if self.replay_memory_write_cursor >= self.replay_memory_size:
+                self.replay_memory_is_full = True
+                self.replay_memory_write_cursor = 0
 
-#         rewards[:-1] = 0.
-#         rewards = self.discount_episode_rewards(rewards)
-        self.replay_memory[0] += states
-        self.replay_memory[1] += actions
-        self.replay_memory[2] += rewards
-
-        if len(self.replay_memory[2]) < 1000:
+        if not self.replay_memory_is_full:
             return
 
-        states = self.replay_memory[0]
-        actions = self.replay_memory[1]
-        reward = self.replay_memory[2]
-
-        states = np.vstack(states)
-        actions = np.vstack(actions)
-        rewards = np.array(rewards)
-
-        self.replay_memory[0].clear()
-        self.replay_memory[1].clear()
-        self.replay_memory[2].clear()
+        minibatch = 256
+        idx = np.random.choice(self.replay_memory0.shape[0], minibatch, replace=False)
+        states = self.replay_memory0[idx]
+        states = states.reshape((-1, h, w, c))
+        actions = self.replay_memory1[idx]
+        rewards = self.replay_memory2[idx]
 
         fd = {self.states_pl:states, self.actions_pl:actions, self.rewards_pl:rewards}  # [i][np.newaxis, ...]
         _, pg_loss, value_loss = self.sess.run([self.train_op, self.loss, self.value_loss], feed_dict=fd)
         print('reward: {:>2d}, winner: {:d}, stand for: {:d}, policy net loss: {:6.3f}, value net loss: {:7.3f}'
-              .format(rewards[-1], winner, kwargs['stand_for'], pg_loss, value_loss))
+              .format(result_of_this_game, winner, kwargs['stand_for'], pg_loss, value_loss))
         self.rl_global_step += 1
         self.stat.append((self.rl_global_step, rewards[-1], pg_loss, 1 if winner == kwargs['stand_for'] else 0))
 
