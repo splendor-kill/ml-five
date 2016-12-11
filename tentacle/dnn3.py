@@ -84,7 +84,7 @@ class DCNN3(Pre):
         W_4 = self.weight_variable([num_hidden, Pre.NUM_ACTIONS])
         b_4 = self.bias_variable([Pre.NUM_ACTIONS])
 
-        hidden = tf.nn.tanh(tf.matmul(conv, W_3) + b_3)
+        hidden = tf.nn.relu(tf.matmul(conv, W_3) + b_3)
         fc_out = tf.matmul(hidden, W_4) + b_4
         return fc_out
 
@@ -97,7 +97,7 @@ class DCNN3(Pre):
         W_4 = tf.Variable(tf.zeros([num_hidden, 1], tf.float32))
         b_4 = tf.Variable(tf.zeros([1], tf.float32))
 
-        hidden = tf.nn.tanh(tf.matmul(conv, W_3) + b_3)
+        hidden = tf.nn.relu(tf.matmul(conv, W_3) + b_3)
         fc_out = tf.matmul(hidden, W_4) + b_4
         return fc_out
 

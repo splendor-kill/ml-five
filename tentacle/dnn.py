@@ -73,7 +73,7 @@ class Pre(object):
         self.starter_learning_rate = 0.001
         self.rl_global_step = 0
 
-        self.replay_memory_size = 30000
+        self.replay_memory_size = 10*1000
         h, w, c = self.get_input_shape()
         self.replay_memory0 = np.zeros([self.replay_memory_size, h * w * c], dtype=np.float32)
         self.replay_memory1 = np.zeros([self.replay_memory_size, Pre.NUM_ACTIONS], dtype=np.float32)
@@ -179,19 +179,19 @@ class Pre(object):
         for i, (grad, var) in enumerate(self.policy_grads):
             if grad is not None:
                 self.policy_grads[i] = (-grad * self.advantages, var)
-#         self.policy_opt_op = tf.train.GradientDescentOptimizer(learning_rate).apply_gradients(self.policy_grads)
+        self.policy_opt_op = tf.train.GradientDescentOptimizer(0.0001).apply_gradients(self.policy_grads)
 
         mean_square_loss = tf.reduce_mean(tf.squared_difference(self.rewards_pl, self.value_outputs))
         value_reg_loss = tf.reduce_sum([tf.reduce_sum(tf.square(x)) for x in value_net_vars])
-        self.value_loss = mean_square_loss  # + 0.001 * value_reg_loss
+        self.value_loss = mean_square_loss + 0.001 * value_reg_loss
 
-        self.value_grads = self.optimizer.compute_gradients(self.value_loss, value_net_vars)
-        grads = self.policy_grads + self.value_grads
-        for i, (grad, var) in enumerate(grads):
-            if grad is not None:
-                grads[i] = (tf.clip_by_norm(grad, 5.0), var)
-#         self.value_opt_op = tf.train.GradientDescentOptimizer(0.0001).apply_gradients(self.value_grads)
-        self.train_op = tf.train.GradientDescentOptimizer(0.0001).apply_gradients(grads)
+#         self.value_grads = self.optimizer.compute_gradients(self.value_loss, value_net_vars)
+#         grads = self.policy_grads + self.value_grads
+#         for i, (grad, var) in enumerate(grads):
+#             if grad is not None:
+#                 grads[i] = (tf.clip_by_norm(grad, 5.0), var)
+        self.value_opt_op = self.optimizer.minimize(self.value_loss)
+#         self.train_op = tf.train.GradientDescentOptimizer(0.0001).apply_gradients(grads)
 
 #         for grad, var in self.value_grads:
 #             tf.histogram_summary(var.name, var)
@@ -496,10 +496,9 @@ class Pre(object):
         h, w, c = self.get_input_shape()
 
         gamma = 0.96
-
         result_steps = len(self.observation)
         assert result_steps > 0
-        quick_win_factor = -1.0 * result_steps
+        corrected_reward_for_quick_finish = np.exp(-3 * 2 * result_steps / Pre.NUM_ACTIONS) + 0.95
         decay_coeff = gamma ** (result_steps - 1)
         result_of_this_game = 0
         for who, st0, st1 in self.observation:
@@ -514,7 +513,7 @@ class Pre(object):
             self.replay_memory0[self.replay_memory_write_cursor, :] = state
             self.replay_memory1[self.replay_memory_write_cursor, :] = action
             reward *= decay_coeff
-            self.replay_memory2[self.replay_memory_write_cursor] = reward
+            self.replay_memory2[self.replay_memory_write_cursor] = reward * corrected_reward_for_quick_finish
             decay_coeff /= gamma
             self.replay_memory_write_cursor += 1
             if self.replay_memory_write_cursor >= self.replay_memory_size:
@@ -532,7 +531,7 @@ class Pre(object):
         rewards = self.replay_memory2[idx]
 
         fd = {self.states_pl:states, self.actions_pl:actions, self.rewards_pl:rewards}  # [i][np.newaxis, ...]
-        _, pg_loss, value_loss = self.sess.run([self.train_op, self.loss, self.value_loss], feed_dict=fd)
+        _, _, pg_loss, value_loss = self.sess.run([self.policy_opt_op, self.value_opt_op, self.loss, self.value_loss], feed_dict=fd)
         print('reward: {:>2d}, winner: {:d}, stand for: {:d}, policy net loss: {:6.3f}, value net loss: {:7.3f}'
               .format(result_of_this_game, winner, kwargs['stand_for'], pg_loss, value_loss))
         self.rl_global_step += 1
