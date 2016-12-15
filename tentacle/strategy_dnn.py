@@ -13,7 +13,7 @@ class StrategyDNN(Strategy, Auditor):
         super().__init__()
         self.init_exp = 0.2  # initial exploration prob
         self.final_exp = 0.001  # final exploration prob
-        self.anneal_steps = 90*1000  # N steps for annealing exploration
+        self.anneal_steps = 90 * 1000  # N steps for annealing exploration
         self.absorb_progress = 0
         self.exploration = self.init_exp
 

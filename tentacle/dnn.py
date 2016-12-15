@@ -73,7 +73,7 @@ class Pre(object):
         self.starter_learning_rate = 0.001
         self.rl_global_step = 0
 
-        self.replay_memory_size = 10*1000
+        self.replay_memory_size = 10 * 1000
         h, w, c = self.get_input_shape()
         self.replay_memory0 = np.zeros([self.replay_memory_size, h * w * c], dtype=np.float32)
         self.replay_memory1 = np.zeros([self.replay_memory_size, Pre.NUM_ACTIONS], dtype=np.float32)
@@ -253,9 +253,16 @@ class Pre(object):
         h, w, c = self.get_input_shape()
         feed_dict = {
             self.states_pl: state.reshape(1, -1).reshape((-1, h, w, c)),
-#             self.actions_pl: np.zeros(1)
         }
         return self.sess.run(self.predict_probs, feed_dict=feed_dict)
+
+    def get_state_value(self, state):
+        h, w, c = self.get_input_shape()
+        feed_dict = {
+            self.states_pl: state.reshape(1, -1).reshape((-1, h, w, c)),
+        }
+        return self.sess.run(self.value_outputs, feed_dict=feed_dict)
+
 
     def train(self, ith_part):
         Pre.NUM_STEPS = self.ds_train.num_examples // Pre.BATCH_SIZE

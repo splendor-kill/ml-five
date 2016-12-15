@@ -18,7 +18,8 @@ import numpy as np
 from tentacle.board import Board
 from tentacle.game import Game
 from tentacle.server import net
-from tentacle.strategy import StrategyHuman, StrategyMC, StrategyNetBot
+from tentacle.strategy import StrategyHuman, StrategyMC, StrategyNetBot, \
+    StrategyMCTS1
 from tentacle.strategy import StrategyMinMax
 from tentacle.strategy import StrategyTD, StrategyRand
 from tentacle.strategy_ann import StrategyANN
@@ -287,7 +288,8 @@ class Gui(object):
         if self.strategy_1 is None:
 #             s1 = StrategyMC()
 #             s1 = StrategyANN(feat, feat * 2)
-            s1 = StrategyDNN()
+#             s1 = StrategyDNN()
+            s1 = StrategyMCTS1()
             self.strategy_1 = s1
         else:
             s1 = self.strategy_1
@@ -549,7 +551,7 @@ class Gui(object):
 #                 print('stronger, oppos:', len(self.oppo_pool))
 #             elif win1 < win2:
 #                 n_lose += 1
-# 
+#
 #             if n_lose >= 50:
 #                 break
 

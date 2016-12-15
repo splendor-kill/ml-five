@@ -34,7 +34,7 @@ class DCNN3(Pre):
 
         pg_loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(self.predictions, actions_pl))
         reg_loss = tf.reduce_sum([tf.reduce_sum(tf.square(x)) for x in self.policy_net_vars])
-        self.loss = pg_loss  #+ 0.001 * reg_loss
+        self.loss = pg_loss  # + 0.001 * reg_loss
 
         tf.scalar_summary("raw_policy_loss", pg_loss)
         tf.scalar_summary("reg_policy_loss", reg_loss)
