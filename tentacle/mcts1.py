@@ -1,13 +1,11 @@
 from collections import namedtuple
 from queue import Queue
+import time
 
 import numpy as np
 from tentacle.board import Board
 from tentacle.dnn3 import DCNN3
 from tentacle.game import Game
-import time
-
-
 
 
 class TreeNode(object):
@@ -47,7 +45,7 @@ class TreeNode(object):
         return self._Q + self._u
 
     def is_leaf(self):
-        return self._children == {}
+        return not self._children
 
     def is_root(self):
         return self._parent is None
@@ -69,33 +67,6 @@ class MCTS1(object):
         self._value = value_fn
         self._policy = policy_fn
         self._rollout = rollout_policy_fn
-
-
-#
-#     def select(self, state):
-#         if not state in self.stats:
-#             self.stats[state] = MCTS1.StatItem(P=0.0, Nv=0, Nr=0, Wv=0, Wr=0, Q=0.0)
-#
-#         if self.stats[state].Nv == 0:
-#             return state
-#
-#         legal_states, _, legal_moves = Game.possible_moves(state)
-#         probs = self.brain.get_move_probs(state)
-#         all_moves = np.zeros_like(probs)
-#         q = np.zeros_like(probs)
-#
-#         for st1, move in zip(legal_states, legal_moves):
-#             if not st1 in self.stats[st1]:
-#                 self.stats[st1] = MCTS1.StatItem(P=0.0, Nv=0, Nr=0, Wv=0, Wr=0, Q=0.0)
-#
-#             all_moves[move] = self.stats[st1].Nr
-#             q[move] = self.stats[st1].Q
-#
-#         u = self.c_puct * probs * np.sqrt(np.sum(all_moves)) / (1 + all_moves)
-#         action = np.argmax(q + u)
-#
-#         return action
-
 
 #     def work(self, root_state):
 #         max_iter = 10000
@@ -123,55 +94,6 @@ class MCTS1(object):
 #                 node = node.parent
 #
 #         return root
-
-
-
-
-
-#     def expand(self, state):
-#         if self.stats[state].Nr > self.n_thr:
-# #             self.state_queue.put_nowait(state)
-#             self.tree.add(state)
-#
-#         self.stats[state] = MCTS1.StatItem(P={}, Nv=0, Nr=0, Wv=0, Wr=0, Q=0.0)
-#         legal_states, _, legal_moves = Game.possible_moves(state)
-#         probs = self.brain.get_move_probs(state)
-#         probs = probs[legal_moves]
-#         self.stats[state].P = probs
-#
-#     def evaluate(self, state):
-#         if self.stats[state].Nr == 0:
-#             v = self.brain.get_state_value(state)
-#             self.stats[state].Q = v
-#
-#         old_board = Board()
-#         old_board.stones = state
-#         cur_player = None
-#         z = 0
-#         while True:
-#             legal_states, player, legal_moves = Game.possible_moves(state)
-#             if cur_player is None:
-#                 cur_player = player
-#             probs = self.brain.get_move_probs(state)
-#             best_move = np.argmax(probs, 1)[0]
-#             idx = np.where(legal_moves == best_move)[0]
-#             assert idx.size == 1
-#             idx = idx[0]
-#             st1 = legal_states[idx]
-#
-#             board = Board()
-#             board.stones = st1
-#             over, winner, last_loc = board.is_over(old_board)
-#             if over:
-#                 if winner == 0:
-#                     z = 0
-#                 else:
-#                     z = 1 if winner == cur_player else -1
-#                 break
-#
-#         return (1 - self._lmbda) * self.stats[state].Q + z
-
-
 
 
     def _playout(self, state, leaf_depth):

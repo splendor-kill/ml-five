@@ -288,8 +288,8 @@ class Gui(object):
         if self.strategy_1 is None:
 #             s1 = StrategyMC()
 #             s1 = StrategyANN(feat, feat * 2)
-#             s1 = StrategyDNN()
-            s1 = StrategyMCTS1()
+            s1 = StrategyDNN()
+#             s1 = StrategyMCTS1()
             self.strategy_1 = s1
         else:
             s1 = self.strategy_1
