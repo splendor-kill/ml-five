@@ -89,8 +89,9 @@
   alphago做强化学习时候的minibatches是128， 而我们现在是1，是否因为这个影响巨大？</br>
   [DQN\[10\]][10]用了replay memory，如果一局终了时，把的所有状态带上reward后都放到</br>
   replay memory再采样是否有助于解决这个问题？
-
-
+  - 3. 单线程[MCTS\[11\]][11]太慢，不实用，得改成[APV-MCTS\[1\]][1]
+  
+  
 #### 欢迎讨论，渴望指导，谢谢!
 >email: splendor.kill@gmail.com</br>
 QQ: 363599755</br>
