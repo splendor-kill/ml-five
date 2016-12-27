@@ -1,4 +1,3 @@
-import collections
 import csv
 import gc
 import os
@@ -12,7 +11,6 @@ import numpy as np
 import tensorflow as tf
 from tentacle.board import Board
 from tentacle.data_set import DataSet
-from dask.array.random import gamma
 
 
 class RingBuffer():
@@ -167,7 +165,7 @@ class Pre(object):
         self.rewards_pl = tf.placeholder(tf.float32, shape=[None])
 
         # SARSA: alpha * [r + gamma * Q(s', a') - Q(s, a)] * grad
-        # Q: alpha * [r + gamma * max<a>Q(s', a) − Q(s, a)] * grad
+        # Q: alpha * [r + gamma * max<a>Q(s', a) - Q(s, a)] * grad
 
         value_net_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope="value_net")
         delta = self.rewards_pl - self.value_outputs
