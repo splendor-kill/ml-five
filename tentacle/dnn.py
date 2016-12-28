@@ -4,7 +4,7 @@ import os
 import time
 import zipfile
 
-import psutil
+# import psutil
 from scipy import ndimage
 
 import numpy as np
@@ -354,17 +354,17 @@ class Pre(object):
 
 
     def load_dataset(self, filename):
-        proc = psutil.Process(os.getpid())
+        # proc = psutil.Process(os.getpid())
         gc.collect()
-        mem0 = proc.memory_info().rss
+        # mem0 = proc.memory_info().rss
 
         del self.ds_train
         del self.ds_valid
         del self.ds_test
         gc.collect()
 
-        mem1 = proc.memory_info().rss
-        print('gc(M):', (mem1 - mem0) / 1024 ** 2)
+        # mem1 = proc.memory_info().rss
+        # print('gc(M):', (mem1 - mem0) / 1024 ** 2)
 
         content = []
         with open(filename) as csvfile:

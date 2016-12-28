@@ -4,11 +4,13 @@
 # matplotlib.use('Qt4Agg')
 import copy
 import datetime
-from queue import Queue
-import queue
+
 import random
 from threading import Thread
 import threading
+
+from six.moves.queue import Queue, Empty
+
 
 from IPython.utils.tests.test_wildcard import q
 

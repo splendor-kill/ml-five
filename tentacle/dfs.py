@@ -1,3 +1,5 @@
+# -*- coding: utf-8 -*-
+
 from tentacle.board import Board
 
 class Eval(object):

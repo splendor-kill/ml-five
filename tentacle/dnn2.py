@@ -1,7 +1,7 @@
 import gc
 import os
 
-import psutil
+# import psutil
 
 import numpy as np
 import tensorflow as tf
@@ -102,9 +102,9 @@ class DCNN2(Pre):
         return image, win_rate
 
     def adapt(self, filename):
-        proc = psutil.Process(os.getpid())
+        # proc = psutil.Process(os.getpid())
         gc.collect()
-        mem0 = proc.memory_info().rss
+        # mem0 = proc.memory_info().rss
 
         if self.ds_train is not None and not self.loader_train.is_wane:
             self.ds_train = None
@@ -115,8 +115,8 @@ class DCNN2(Pre):
 
         gc.collect()
 
-        mem1 = proc.memory_info().rss
-        print('gc(M):', (mem1 - mem0) / 1024 ** 2)
+        # mem1 = proc.memory_info().rss
+        # print('gc(M):', (mem1 - mem0) / 1024 ** 2)
 
         h, w, c = self.get_input_shape()
 

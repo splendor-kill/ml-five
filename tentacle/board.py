@@ -1,6 +1,6 @@
-from matplotlib import ticker
 
-import matplotlib.pyplot as plt
+
+
 import numpy as np
 
 
@@ -53,25 +53,7 @@ class Board(object):
                 return b
 
 
-    def show(self):
-        fig = plt.figure()
-        ax = fig.add_subplot(111)
 
-        ax.matshow(self.stones)
-
-        labels = [i + 1 for i in range(Board.BOARD_SIZE)]
-
-#         method 1
-#         ax.xaxis.set_ticks(range(self.N))
-#         ax.set_xticklabels(labels)
-#         method 2
-        ax.set_xticklabels([''] + labels)
-        ax.xaxis.set_major_locator(ticker.MultipleLocator(1))
-
-        ax.set_yticklabels([''] + labels)
-        ax.yaxis.set_major_locator(ticker.MultipleLocator(1))
-
-        plt.draw()
 
     def move(self, x, y, v):
         if v != Board.STONE_BLACK and v != Board.STONE_WHITE:
