@@ -1,5 +1,5 @@
 import copy
-import queue
+from six.moves.queue import Queue, Empty
 import random
 import socket
 import struct
@@ -12,6 +12,15 @@ from tentacle.strategy_dnn import StrategyDNN
 
 HOST = ''  # Symbolic name, meaning all available interfaces
 PORT = 10000  # Arbitrary non-privileged port
+
+
+try:
+    ConnectionResetError = ConnectionResetError
+except NameError:
+    class ConnectionResetError(Exception):
+        """
+        A HTTP connection was unexpectedly reset.
+        """
 
 
 def send_one_message(sock, data):

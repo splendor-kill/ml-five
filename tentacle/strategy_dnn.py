@@ -6,6 +6,7 @@ from tentacle.dnn import Pre
 from tentacle.dnn2 import DCNN2
 from tentacle.dnn3 import DCNN3
 from tentacle.strategy import Strategy, Auditor
+from builtins import (super)
 
 
 class StrategyDNN(Strategy, Auditor):

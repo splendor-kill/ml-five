@@ -1,7 +1,7 @@
 import gc
 import os
 
-import psutil
+# import psutil
 
 import numpy as np
 import tensorflow as tf
@@ -9,6 +9,7 @@ from tentacle.board import Board
 from tentacle.data_set import DataSet
 from tentacle.dnn import Pre
 from tentacle.ds_loader import DatasetLoader
+from builtins import (super)
 
 
 class DCNN3(Pre):
@@ -114,9 +115,9 @@ class DCNN3(Pre):
         return image, win_rate
 
     def adapt(self, filename):
-        proc = psutil.Process(os.getpid())
+        # proc = psutil.Process(os.getpid())
         gc.collect()
-        mem0 = proc.memory_info().rss
+        # mem0 = proc.memory_info().rss
 
         if self.ds_train is not None and not self.loader_train.is_wane:
             self.ds_train = None
@@ -127,8 +128,8 @@ class DCNN3(Pre):
 
         gc.collect()
 
-        mem1 = proc.memory_info().rss
-        print('gc(M):', (mem1 - mem0) / 1024 ** 2)
+        # mem1 = proc.memory_info().rss
+        # print('gc(M):', (mem1 - mem0) / 1024 ** 2)
 
         h, w, c = self.get_input_shape()
 

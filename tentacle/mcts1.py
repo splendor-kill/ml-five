@@ -1,5 +1,5 @@
 from collections import namedtuple
-from queue import Queue
+from six.moves.queue import Queue, Empty
 import time
 
 import numpy as np

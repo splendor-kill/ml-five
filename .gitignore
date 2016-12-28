@@ -3,3 +3,4 @@ __pycache__
 /tentacle/*.png
 /tentacle/*.txt
 result
+/tentacle/*.pyc
