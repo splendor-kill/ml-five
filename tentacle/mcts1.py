@@ -1,10 +1,8 @@
 from collections import namedtuple
-from six.moves.queue import Queue, Empty
 import time
 
 import numpy as np
 from tentacle.board import Board
-from tentacle.dnn3 import DCNN3
 from tentacle.game import Game
 
 

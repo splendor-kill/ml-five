@@ -1,5 +1,4 @@
 import copy
-from six.moves.queue import Queue, Empty
 import random
 import socket
 import struct

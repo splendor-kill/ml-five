@@ -4,27 +4,20 @@
 # matplotlib.use('Qt4Agg')
 import copy
 import datetime
-
 import random
 from threading import Thread
-import threading
-
-from six.moves.queue import Queue, Empty
-
-
-from IPython.utils.tests.test_wildcard import q
 
 import matplotlib.patches as patches
 import matplotlib.pyplot as plt
 import numpy as np
+from six.moves import queue
 from tentacle.board import Board
 from tentacle.game import Game
 from tentacle.server import net
-from tentacle.strategy import StrategyHuman, StrategyMC, StrategyNetBot, \
-    StrategyMCTS1
+from tentacle.strategy import StrategyHuman, StrategyMC, StrategyNetBot
+from tentacle.strategy import StrategyMCTS1
 from tentacle.strategy import StrategyMinMax
 from tentacle.strategy import StrategyTD, StrategyRand
-from tentacle.strategy_ann import StrategyANN
 from tentacle.strategy_dnn import StrategyDNN
 
 
@@ -75,7 +68,7 @@ class Gui(object):
         self.game = None
         self.all_stones = []
         self.oppo_pool = []
-        self.msg_queue = Queue(maxsize=100)
+        self.msg_queue = queue.Queue(maxsize=100)
 
         self.timer = self.fig.canvas.new_timer(interval=50)
         self.timer.add_callback(self.on_update)
