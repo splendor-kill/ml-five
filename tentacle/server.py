@@ -55,7 +55,8 @@ def dispose_msg(msg, msg_queue):
     seq = msg.split(' ')
     if seq[0] == 'START:':
         board_size = int(seq[1])
-        board = Board(board_size)
+        Board.set_board_size(board_size)
+        board = Board()
         if s1 is None:
             s1 = StrategyDNN()
         first_query = True

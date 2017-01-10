@@ -19,18 +19,14 @@ class Board(object):
     STONE_EMPTY = 0
     STONE_BLACK = 1
     STONE_WHITE = 2
-    BOARD_SIZE = 9
-    BOARD_SIZE_SQ = BOARD_SIZE ** 2
     WIN_STONE_NUM = 5
     WIN_PATTERN = {STONE_BLACK: np.ones(WIN_STONE_NUM, dtype=int) * STONE_BLACK,
                    STONE_WHITE: np.ones(WIN_STONE_NUM, dtype=int) * STONE_WHITE}
+    BOARD_SIZE = 15
+    BOARD_SIZE_SQ = BOARD_SIZE ** 2
 
-    def __init__(self, board_size=9):
-        Board.BOARD_SIZE = board_size
-        Board.BOARD_SIZE_SQ = Board.BOARD_SIZE ** 2
-
+    def __init__(self):
         self.stones = np.zeros(Board.BOARD_SIZE_SQ, np.int)
-#         self.stones = np.random.rand(N, N)
         self.over = False
         self.winner = Board.STONE_EMPTY
         self.exploration = False
@@ -52,8 +48,10 @@ class Board(object):
             if not Board.find_conn_5_all(m2):
                 return b
 
-
-
+    @staticmethod
+    def set_board_size(board_size):
+        Board.BOARD_SIZE = board_size
+        Board.BOARD_SIZE_SQ = Board.BOARD_SIZE ** 2
 
     def move(self, x, y, v):
         if v != Board.STONE_BLACK and v != Board.STONE_WHITE:
