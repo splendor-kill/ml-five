@@ -49,9 +49,8 @@ class Pre(object):
     DATA_SET_TRAIN = os.path.join(DATA_SET_DIR, 'train.txt')
     DATA_SET_VALID = os.path.join(DATA_SET_DIR, 'validation.txt')
     DATA_SET_TEST = os.path.join(DATA_SET_DIR, 'test.txt')
-    DATA_SET_ZIP_FILE = '/home/splendor/fusor/dataset.zip'
-    BRAIN_ZIP_FILE = '/home/splendor/fusor/brain.zip'
-
+    
+    
     def __init__(self, is_train=True, is_revive=False, is_rl=False):
         self.is_train = is_train
         self.is_revive = is_revive
@@ -454,25 +453,6 @@ class Pre(object):
 #                 if epoch >= 1:
 #                     break
 
-    def deploy(self):
-        if os.path.exists(Pre.DATA_SET_DIR):
-            print('dataset dir exists')
-        else:
-            print('extract dataset...')
-            with open(Pre.DATA_SET_ZIP_FILE, 'rb') as fh:
-                z = zipfile.ZipFile(fh)
-                for name in z.namelist():
-                    z.extract(name, Pre.WORK_DIR)
-
-        if os.path.exists(Pre.BRAIN_DIR):
-            print('brain dir exists')
-        else:
-            print('extract brain...')
-            with open(Pre.BRAIN_ZIP_FILE, 'rb') as fh:
-                z = zipfile.ZipFile(fh)
-                for name in z.namelist():
-                    z.extract(name, Pre.WORK_DIR)
-
 
     def learning_through_play(self):
 #         for step in range(Pre.NUM_STEPS):
@@ -574,6 +554,5 @@ class Pre(object):
 
 if __name__ == '__main__':
     pre = Pre(is_revive=False)
-    pre.deploy()
     pre.run()
 
