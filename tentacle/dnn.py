@@ -44,7 +44,7 @@ class Pre(object):
     SUMMARY_DIR = os.path.join(WORK_DIR, 'summary')
     STAT_FILE = os.path.join(WORK_DIR, 'stat.npz')
     MID_VIS_FILE = os.path.join(WORK_DIR, 'mid_vis.npz')
-    DATA_SET_DIR = os.path.join(WORK_DIR, 'dataset_gomocup9')
+    DATA_SET_DIR = os.path.join(WORK_DIR, 'dataset_gomocup15')
     DATA_SET_FILE = os.path.join(DATA_SET_DIR, 'train.txt')
     DATA_SET_TRAIN = os.path.join(DATA_SET_DIR, 'train.txt')
     DATA_SET_VALID = os.path.join(DATA_SET_DIR, 'validation.txt')
