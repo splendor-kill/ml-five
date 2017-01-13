@@ -33,7 +33,8 @@ class Game(object):
         strat.update(self.board, None)
 
         new_board = strat.preferred_board(self.board, moves, self)
-#         print('who%d play at %s'%(self.whose_turn, str(divmod(Board.change(self.board, new_board), Board.BOARD_SIZE))))
+        # print('who%d play at %s' % (self.whose_turn,
+        #                             str(divmod(Board.change(self.board, new_board), Board.BOARD_SIZE))))
 #         print(self.board.stones)
         if new_board.exploration:
             strat.setup()
@@ -83,11 +84,11 @@ class Game(object):
 #         print('stone stat.')
 #         print(stat)
 
-        if  stat[Board.STONE_EMPTY] == 0:
+        if stat[Board.STONE_EMPTY] == 0:
             return Board.STONE_EMPTY  # end
-        if  stat[Board.STONE_BLACK] == stat[Board.STONE_WHITE]:
+        if stat[Board.STONE_BLACK] == stat[Board.STONE_WHITE]:
             return Board.STONE_BLACK  # black first, turn to black
-        if  stat[Board.STONE_BLACK] == stat[Board.STONE_WHITE] + 1:
+        if stat[Board.STONE_BLACK] == stat[Board.STONE_WHITE] + 1:
             return Board.STONE_WHITE  # turn to while
         raise Exception("illegal state")
 
@@ -115,4 +116,3 @@ class Game(object):
 
 #         print('possible moves[%d]' % len(boards))
         return boards, who, loc[0]
-

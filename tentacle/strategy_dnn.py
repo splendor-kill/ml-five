@@ -1,9 +1,5 @@
-import random
-
 import numpy as np
 from tentacle.board import Board
-from tentacle.dnn import Pre
-from tentacle.dnn2 import DCNN2
 from tentacle.dnn3 import DCNN3
 from tentacle.strategy import Strategy, Auditor
 from builtins import (super)
@@ -53,7 +49,7 @@ class StrategyDNN(Strategy, Auditor):
             loc = np.unravel_index(best_move, (Board.BOARD_SIZE, Board.BOARD_SIZE))
             is_legal = board.is_legal(loc[0], loc[1])
             if not is_legal:
-#                 print('best move:', best_move, ', loc:', loc, 'is legal:', is_legal)
+                # print('best move:', best_move, ', loc:', loc, 'is legal:', is_legal)
                 rand_loc = np.random.choice(np.where(v == Board.STONE_EMPTY)[0], 1)[0]
                 loc = np.unravel_index(rand_loc, (Board.BOARD_SIZE, Board.BOARD_SIZE))
 #                 print(self.stand_for,' get illegal, random choice:', loc)
@@ -112,4 +108,3 @@ class StrategyDNN(Strategy, Auditor):
         ratio = max((self.anneal_steps - self.absorb_progress) / float(self.anneal_steps), 0)
         self.exploration = (self.init_exp - self.final_exp) * ratio + self.final_exp
 #         self.exploration = 0.03
-

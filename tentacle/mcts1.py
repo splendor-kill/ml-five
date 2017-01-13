@@ -17,10 +17,8 @@ class TreeNode(object):
         self._u = prior_p
         self._P = prior_p
 
-
     def select(self):
-        return max(self._children.items(), key=lambda act_node:act_node[1].get_value())
-
+        return max(self._children.items(), key=lambda act_node: act_node[1].get_value())
 
     def expand(self, action_priors):
 
@@ -93,14 +91,12 @@ class MCTS1(object):
 #
 #         return root
 
-
     def _playout(self, state, leaf_depth):
-        start_time = time.time()
+        # start_time = time.time()
         node = self._root
 
         print('exploit')
         for i in range(leaf_depth):
-#             print()
             legal_states, _, legal_moves = Game.possible_moves(state)
 #             print(state)
 #             print(legal_moves)
@@ -139,7 +135,7 @@ class MCTS1(object):
         node.update_recursive(leaf_value, self._c_puct)
 
     def _evaluate_rollout(self, state, limit):
-#         _, player, legal_moves = Game.possible_moves(state)
+        # _, player, legal_moves = Game.possible_moves(state)
         winner = 0
 
 #         old_board = Board()
@@ -184,14 +180,12 @@ class MCTS1(object):
         else:
             return 1 if winner == player else -1
 
-
     def get_move(self, state):
         for n in range(self._n_playout):
-#             state_copy = state.copy()
+            # state_copy = state.copy()
             self._playout(state, self._L)
 
         return max(self._root._children.items(), key=lambda act_node: act_node[1]._n_visits)[0]
-
 
     def update_with_move(self, last_move):
         if last_move in self._root._children:
@@ -199,7 +193,6 @@ class MCTS1(object):
             self._root._parent = None
         else:
             self._root = TreeNode(None, 1.0)
-
 
     def pack_state(self, state):
         black = np.packbits(state == Board.STONE_BLACK)
@@ -229,4 +222,3 @@ class MCTS1(object):
 # if __name__ == '__main__':
 #     mcts = MCTS1()
 #     mcts.test_pack_unpack()
-

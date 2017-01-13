@@ -14,8 +14,10 @@ from six.moves import queue
 from tentacle.board import Board
 from tentacle.game import Game
 from tentacle.server import net
-from tentacle.strategy import StrategyHuman, StrategyMC, StrategyNetBot
-from tentacle.strategy import StrategyMCTS1
+from tentacle.strategy import StrategyHuman
+from tentacle.strategy import StrategyMC
+# from tentacle.strategy import StrategyNetBot
+# from tentacle.strategy import StrategyMCTS1
 from tentacle.strategy import StrategyMinMax
 from tentacle.strategy import StrategyTD, StrategyRand
 from tentacle.strategy_dnn import StrategyDNN
@@ -28,7 +30,6 @@ class Gui(object):
     RESULT_MSG = {Board.STONE_BLACK: 'Black Win',
                   Board.STONE_WHITE: 'White Win',
                   Board.STONE_EMPTY: 'Draw'}
-
 
     def __init__(self):
         size = Board.BOARD_SIZE
@@ -46,8 +47,7 @@ class Gui(object):
                                     xticks=range(size),
                                     yticks=range(size),
                                     xticklabels=[chr(ord('A') + i) for i in range(size)],
-                                    yticklabels=range(1, 1 + size)
-                                   )
+                                    yticklabels=range(1, 1 + size))
         self.ax.grid(color='k', linestyle='-', linewidth=1)
         self.ax.set_title('press T for training')
 
@@ -76,7 +76,6 @@ class Gui(object):
 
         plt.show()
 
-
     def _handle_close(self, event):
         if self.strategy_1 is not None:
             self.strategy_1.close()
@@ -84,7 +83,7 @@ class Gui(object):
             self.strategy_2.close()
 
     def _key_press(self, event):
-#         print('press', event.key)
+        # print('press', event.key)
         if event.key == '0':
             # clear
             pass
@@ -136,7 +135,6 @@ class Gui(object):
         elif event.key == 'f12':
             plt.pause(600)
 
-
     def _button_press(self, event):
         if self.state != Gui.STATE_PLAY:
             return
@@ -147,14 +145,12 @@ class Gui(object):
         i, j = map(round, (event.xdata, event.ydata))
 #         print('click at(%d, %d)' % (i, j))
 
-
     def which_one(self, which_side):
         if self.strategy_1 is not None and self.strategy_1.stand_for == which_side:
             return self.strategy_1
         elif self.strategy_2 is not None and self.strategy_2.stand_for == which_side:
             return self.strategy_2
         return None
-
 
     def vs_human(self, which_side_human_play):
         strategy = self.which_one(Board.oppo(which_side_human_play))
@@ -175,7 +171,6 @@ class Gui(object):
         self.game.step_to_end()
 
         strategy.is_learning, strategy.stand_for = old_is_learning, old_stand_for
-
 
     def clear_board(self):
         print('\nclear board\n')
@@ -266,29 +261,28 @@ class Gui(object):
         plt.figure(self.fig.number)
 
     def init_both_sides(self):
-        feat = Board.BOARD_SIZE_SQ * 2 + 2
+        # feat = Board.BOARD_SIZE_SQ * 2 + 2
 
-#         if self.strategy_1 is None:
-#             s1 = StrategyTD(feat, feat * 2)
-#             s1.stand_for = Board.STONE_BLACK
-#     #         s1.alpha = 0.3
-#     #         s1.beta = 0.3
-#             s1.lambdaa = 0.05
-#             s1.epsilon = 0.3
-#             self.strategy_1 = s1
-#         else:
-#             s1 = self.strategy_1
-#             s1.epsilon = 0.3
+        # if self.strategy_1 is None:
+        #     s1 = StrategyTD(feat, feat * 2)
+        #     s1.stand_for = Board.STONE_BLACK
+        #     s1.alpha = 0.3
+        #     s1.beta = 0.3
+        #     s1.lambdaa = 0.05
+        #     s1.epsilon = 0.3
+        #     self.strategy_1 = s1
+        # else:
+        #     s1 = self.strategy_1
+        #     s1.epsilon = 0.3
 
         if self.strategy_1 is None:
-#             s1 = StrategyMC()
-#             s1 = StrategyANN(feat, feat * 2)
+            # s1 = StrategyMC()
+            # s1 = StrategyANN(feat, feat * 2)
             s1 = StrategyDNN()
-#             s1 = StrategyMCTS1()
+            # s1 = StrategyMCTS1()
             self.strategy_1 = s1
         else:
             s1 = self.strategy_1
-
 
         s1.is_learning = True
         s1.stand_for = Board.STONE_BLACK
@@ -308,7 +302,6 @@ class Gui(object):
         self.strategy_2 = s2
 
         return s1, s2
-
 
     def match(self):
         s1, s2 = self.strategy_1, self.strategy_2
@@ -344,7 +337,6 @@ class Gui(object):
         print('total play:', games)
         print(probs)
 
-
     def train1(self, s1, s2):
         '''train one time
         Returns:
@@ -359,11 +351,11 @@ class Gui(object):
         step_counter, explo_counter = 0, 0
         begin = datetime.datetime.now()
         episodes = 1
-        samples = 100
-        interval = episodes // samples
-        perf = [[] for _ in range(7)]
+        # samples = 100
+        # interval = episodes // samples
+        # perf = [[] for _ in range(7)]
         learner = s1 if s1.is_learning else s2
-        oppo = self.which_one(Board.oppo(learner.stand_for))
+        # oppo = self.which_one(Board.oppo(learner.stand_for))
         stat_win = []
 #         past_me = learner.mind_clone()
         for i in range(episodes):
@@ -414,7 +406,6 @@ class Gui(object):
 #         print(len(rec))
 #         plt.plot(rec)
 
-
     def learn_from_2_teachers(self):
         s1 = StrategyMinMax()
         s1.stand_for = Board.STONE_BLACK
@@ -454,7 +445,6 @@ class Gui(object):
 
         observer.save('./brain1.npz')
 
-
     def from_new_start_point(self, winner, s1, s2):
         '''
         Returns:
@@ -462,7 +452,7 @@ class Gui(object):
         s1 : Strategy
             the learner
         s2 : Strategy
-            the teacher        
+            the teacher
         '''
         if s1 == winner:
             s2 = s1.mind_clone()
@@ -481,13 +471,10 @@ class Gui(object):
         s2.is_learning = False
         return s1, s2
 
-
     def train2(self):
         '''train many times
-        
         '''
         s1, s2 = self.init_both_sides()
-
 
         win_probs = []
         begin = datetime.datetime.now()
@@ -511,7 +498,6 @@ class Gui(object):
 
         plt.title('press F3 start')
 
-
     def reinforce(self):
         if len(self.oppo_pool) == 0:
             self.oppo_pool.append(StrategyDNN(is_train=False, is_revive=True, is_rl=False))
@@ -522,7 +508,7 @@ class Gui(object):
         stat = []
         win1, win2, draw = 0, 0, 0
 
-        n_lose = 0
+        # n_lose = 0
         iter_n = 100
         i = 0
         while True:
@@ -606,4 +592,3 @@ class Gui(object):
 
 if __name__ == '__main__':
     gui = Gui()
-

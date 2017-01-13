@@ -1,6 +1,7 @@
 import linecache
 import numpy as np
 
+
 class DatasetLoader(object):
 
     def __init__(self, file_name):
@@ -28,7 +29,7 @@ class DatasetLoader(object):
                 rewind = True
                 if self._wane:
                     break
-                
+
         self._has_more = False
         if not rewind:
             line = linecache.getline(self.file_name, self._cursor + 1)
@@ -38,7 +39,7 @@ class DatasetLoader(object):
         content = np.array(content)
         np.random.shuffle(content)
         return content, self._has_more
-    
+
     @property
     def is_wane(self):
         return self._wane

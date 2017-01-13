@@ -1,5 +1,6 @@
 import numpy as np
 
+
 class DataSet(object):
     def __init__(self, images, labels):
         assert images.shape[0] == labels.shape[0], ('images.shape: %s labels.shape: %s' % (images.shape, labels.shape))

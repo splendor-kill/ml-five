@@ -1,13 +1,10 @@
-
-
-
 import numpy as np
 
 
 class Board(object):
     '''
     describe the board state
-    
+
     Attributes:
     ------------------
     N : int
@@ -72,9 +69,9 @@ class Board(object):
         stat = np.bincount(self.stones, minlength=3)
         op = Board.oppo(who_first)
 
-        if  stat[who_first] == stat[op]:
+        if stat[who_first] == stat[op]:
             return who_first
-        if  stat[who_first] > stat[op]:
+        if stat[who_first] > stat[op]:
             return op
 
     def is_legal(self, x, y):
@@ -248,6 +245,5 @@ class Board(object):
         return False, None, loc
 
     def __str__(self):
-#         grid = self.stones.reshape(-1, Board.BOARD_SIZE)
+        # grid = self.stones.reshape(-1, Board.BOARD_SIZE)
         return str(self.stones)
-

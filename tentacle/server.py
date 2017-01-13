@@ -28,23 +28,26 @@ def send_one_message(sock, data):
     sock.sendall(struct.pack('!I', length))
     sock.sendall(data)
 
+
 def recv_one_message(sock):
     lengthbuf = recvall(sock, 4)
     length, = struct.unpack('!I', lengthbuf)
     return recvall(sock, length)
 
+
 def recvall(sock, count):
     buf = b''
     while count:
         newbuf = sock.recv(count)
-        if not newbuf: return None
+        if not newbuf:
+            return None
         buf += newbuf
         count -= len(newbuf)
     return buf
 
 
 def dispose_msg(msg, msg_queue):
-#     print('recv:', msg)
+    # print('recv:', msg)
 
     global board
     global s1
@@ -99,10 +102,11 @@ def dispose_msg(msg, msg_queue):
         x, y = s1.preferred_move(board)
         ans = 'HERE: %d %d' % (x, y)
     elif seq[0] == 'END:':
-#             s1.close()
+        # s1.close()
         ans = 'END: OK'
 
     return ans
+
 
 class ClientThread(Thread):
     def __init__(self, conn, msg_queue):

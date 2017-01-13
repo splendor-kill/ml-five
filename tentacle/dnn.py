@@ -2,7 +2,6 @@ import csv
 import gc
 import os
 import time
-import zipfile
 
 # import psutil
 from scipy import ndimage
@@ -49,8 +48,7 @@ class Pre(object):
     DATA_SET_TRAIN = os.path.join(DATA_SET_DIR, 'train.txt')
     DATA_SET_VALID = os.path.join(DATA_SET_DIR, 'validation.txt')
     DATA_SET_TEST = os.path.join(DATA_SET_DIR, 'test.txt')
-    
-    
+
     def __init__(self, is_train=True, is_revive=False, is_rl=False):
         self.is_train = is_train
         self.is_revive = is_revive
@@ -77,7 +75,6 @@ class Pre(object):
         self.replay_memory2 = np.zeros(self.replay_memory_size, dtype=np.float32)
         self.replay_memory_write_cursor = 0
         self.replay_memory_is_full = False
-
 
     def placeholder_inputs(self):
         h, w, c = self.get_input_shape()
@@ -170,7 +167,8 @@ class Pre(object):
         delta = self.rewards_pl - self.value_outputs
         self.advantages = tf.reduce_mean(delta)
 
-        learning_rate = tf.train.exponential_decay(self.starter_learning_rate, self.rl_global_step, 500, 0.96, staircase=True)
+        # learning_rate = tf.train.exponential_decay(self.starter_learning_rate,
+        #                                            self.rl_global_step, 500, 0.96, staircase=True)
 
         self.policy_grads = self.optimizer.compute_gradients(self.loss, self.policy_net_vars)
         for i, (grad, var) in enumerate(self.policy_grads):
@@ -260,7 +258,6 @@ class Pre(object):
         }
         return self.sess.run(self.value_outputs, feed_dict=feed_dict)
 
-
     def train(self, ith_part):
         Pre.NUM_STEPS = self.ds_train.num_examples // Pre.BATCH_SIZE
         print('total num steps:', Pre.NUM_STEPS)
@@ -294,15 +291,18 @@ class Pre(object):
         test_accuracy = self.do_eval(self.eval_correct, self.states_pl, self.actions_pl, self.ds_test)
         print('part: %d, acc_train: %.3f, acc_valid: %.3f, test accuracy: %.3f, time cost: %.3f sec' %
               (ith_part, train_accuracy, validation_accuracy, test_accuracy, duration))
-        self.acc_vs_size.append((ith_part * Pre.NUM_STEPS * Pre.BATCH_SIZE, train_accuracy, validation_accuracy, test_accuracy))
+        self.acc_vs_size.append(
+            (ith_part * Pre.NUM_STEPS * Pre.BATCH_SIZE, train_accuracy, validation_accuracy, test_accuracy))
 
         J_train = 0  # self.test_against_size(self.ds_train)
         J_cv = 0  # self.test_against_size(self.ds_valid)
         np.savez(Pre.STAT_FILE, stat=np.array(self.stat), J_train=J_train, J_cv=J_cv, vs_size=self.acc_vs_size)
 
     def mid_vis(self, feed_dict):
-        conv1, conv2, conv21, hide, pred = self.sess.run([self.h_conv1, self.h_conv2, self.h_conv21, self.hidden, self.predict_probs], feed_dict=feed_dict)
-        np.savez(Pre.MID_VIS_FILE, feed=feed_dict[self.states_pl], conv1=conv1, conv2=conv2, conv21=conv21, hide=hide, pred=pred)
+        conv1, conv2, conv21, hide, pred = self.sess.run(
+            [self.h_conv1, self.h_conv2, self.h_conv21, self.hidden, self.predict_probs], feed_dict=feed_dict)
+        np.savez(Pre.MID_VIS_FILE, feed=feed_dict[self.states_pl],
+                 conv1=conv1, conv2=conv2, conv21=conv21, hide=hide, pred=pred)
 
     def test_against_size(self, ds):
         trend = []
@@ -347,10 +347,8 @@ class Pre(object):
         self.ds_valid = validation
         self.ds_test = test
 
-
     def get_input_shape(self):
         return Board.BOARD_SIZE, Board.BOARD_SIZE, Pre.NUM_CHANNELS
-
 
     def load_dataset(self, filename):
         # proc = psutil.Process(os.getpid())
@@ -391,7 +389,6 @@ class Pre(object):
         unique_a = content[idx]
         print('unique:', unique_a.shape)
         return unique_a
-
 
     def _neighbor_count(self, board, who):
         footprint = np.array([[1, 1, 1], [1, 0, 1], [1, 1, 1]])
@@ -434,7 +431,7 @@ class Pre(object):
         if self.is_train:
             epoch = 0
             while self.loss_window.get_average() == 0.0 or self.loss_window.get_average() > 0.1:
-#             while self.gap < 0.1:
+                # while self.gap < 0.1:
 
                 print('epoch:', epoch)
                 epoch += 1
@@ -453,11 +450,10 @@ class Pre(object):
 #                 if epoch >= 1:
 #                     break
 
-
     def learning_through_play(self):
-#         for step in range(Pre.NUM_STEPS):
-#             feed_dict = feed_dict(self.states_pl, self.actions_pl, self.rewards_pl)
-#             self.sess.run([self.rl_op], feed_dict=feed_dict)
+        # for step in range(Pre.NUM_STEPS):
+        #     feed_dict = self.feed_dict(self.states_pl, self.actions_pl, self.rewards_pl)
+        #     self.sess.run([self.rl_op], feed_dict=feed_dict)
         pass
 
     def save_params(self):
@@ -473,9 +469,8 @@ class Pre(object):
         if winner == '?':
             winner = self.inference_who_won()
         if winner == Board.STONE_BLACK or winner == Board.STONE_WHITE:
-#             print('winner:', winner)
+            # print('winner:', winner)
             self._absorb(winner, **kwargs)
-
 
     def _absorb(self, winner, **kwargs):
         h, w, c = self.get_input_shape()
@@ -515,8 +510,9 @@ class Pre(object):
         actions = self.replay_memory1[idx]
         rewards = self.replay_memory2[idx]
 
-        fd = {self.states_pl:states, self.actions_pl:actions, self.rewards_pl:rewards}  # [i][np.newaxis, ...]
-        _, _, pg_loss, value_loss = self.sess.run([self.policy_opt_op, self.value_opt_op, self.loss, self.value_loss], feed_dict=fd)
+        fd = {self.states_pl: states, self.actions_pl: actions, self.rewards_pl: rewards}  # [i][np.newaxis, ...]
+        _, _, pg_loss, value_loss = self.sess.run(
+            [self.policy_opt_op, self.value_opt_op, self.loss, self.value_loss], feed_dict=fd)
         print('reward: {:>2d}, winner: {:d}, stand for: {:d}, policy net loss: {:6.3f}, value net loss: {:7.3f}'
               .format(result_of_this_game, winner, kwargs['stand_for'], pg_loss, value_loss))
         self.rl_global_step += 1
@@ -544,7 +540,7 @@ class Pre(object):
         assert len(self.observation) > 0
 
         last = self.observation[-1]
-        who, st0, st1 = last[0], last[1], last[2]
+        who, st1 = last[0], last[2]
 
         oppo = Board.oppo(who)
         oppo_will_win = Board.find_pattern_will_win(st1, oppo)
@@ -555,4 +551,3 @@ class Pre(object):
 if __name__ == '__main__':
     pre = Pre(is_revive=False)
     pre.run()
-
