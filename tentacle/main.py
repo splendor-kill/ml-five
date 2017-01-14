@@ -357,14 +357,14 @@ class Gui(object):
         learner = s1 if s1.is_learning else s2
         # oppo = self.which_one(Board.oppo(learner.stand_for))
         stat_win = []
-#         past_me = learner.mind_clone()
+        # past_me = learner.mind_clone()
         for i in range(episodes):
-#             if (i + 1) % interval == 0:
-# #                 print(np.allclose(s1.hidden_weights, past_me.hidden_weights))
-#                 probs = self.measure_perf(learner, oppo)
-#                 perf[0].append(i)
-#                 for idx, x in enumerate(probs):
-#                     perf[idx + 1].append(x)
+            # if (i + 1) % interval == 0:
+            #     print(np.allclose(s1.hidden_weights, past_me.hidden_weights))
+            #     probs = self.measure_perf(learner, oppo)
+            #     perf[0].append(i)
+            #     for idx, x in enumerate(probs):
+            #         perf[idx + 1].append(x)
 
             learner.epsilon = max_explore_rate * np.exp(-5 * i / episodes)  # * (1 if i < episodes//2 else 0.3) #
             g = Game(Board(), s1, s2)
@@ -391,8 +391,8 @@ class Gui(object):
         diff = end - begin
         print("time cost[%f]s, avg.[%f]s" % (diff.total_seconds(), diff.total_seconds() / episodes))
 
-        with open('stat-result-win.txt', 'w') as f:
-            f.write(repr(stat_win))
+        # with open('stat-result-win.txt', 'w') as f:
+        #     f.write(repr(stat_win))
 #         print(perf)
 #         self.draw_perf(perf)
 

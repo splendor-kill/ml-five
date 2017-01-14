@@ -66,28 +66,22 @@ class DCNN3(Pre):
         b_21 = self.bias_variable([ch])
         W_22 = self.weight_variable([3, 3, ch, ch])
         b_22 = self.bias_variable([ch])
+        W_23 = self.weight_variable([1, 1, ch, 1])
+        b_23 = self.bias_variable([1])
 
         h_conv1 = tf.nn.relu(tf.nn.conv2d(states_pl, W_1, [1, 1, 1, 1], padding='SAME') + b_1)
         h_conv2 = tf.nn.relu(tf.nn.conv2d(h_conv1, W_2, [1, 1, 1, 1], padding='SAME') + b_2)
         h_conv21 = tf.nn.relu(tf.nn.conv2d(h_conv2, W_21, [1, 1, 1, 1], padding='SAME') + b_21)
         h_conv22 = tf.nn.relu(tf.nn.conv2d(h_conv21, W_22, [1, 1, 1, 1], padding='SAME') + b_22)
+        h_conv23 = tf.nn.relu(tf.nn.conv2d(h_conv22, W_23, [1, 1, 1, 1], padding='SAME') + b_23)
 
-        self.conv_out_dim = h_conv22.get_shape()[1:].num_elements()
-        conv_out = tf.reshape(h_conv22, [-1, self.conv_out_dim])
+        self.conv_out_dim = h_conv23.get_shape()[1:].num_elements()
+        conv_out = tf.reshape(h_conv23, [-1, self.conv_out_dim])
         return conv_out
 
     def create_policy_net(self, states_pl):
         conv = self.create_conv_net(states_pl)
-        conv = tf.identity(conv, 'policy_net_conv')
-        num_hidden = 128
-        W_3 = self.weight_variable([self.conv_out_dim, num_hidden])
-        b_3 = self.bias_variable([num_hidden])
-        W_4 = self.weight_variable([num_hidden, Pre.NUM_ACTIONS])
-        b_4 = self.bias_variable([Pre.NUM_ACTIONS])
-
-        hidden = tf.nn.relu(tf.matmul(conv, W_3) + b_3)
-        fc_out = tf.matmul(hidden, W_4) + b_4
-        return fc_out
+        return conv
 
     def create_value_net(self, states_pl):
         conv = self.create_conv_net(states_pl)
