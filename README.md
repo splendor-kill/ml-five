@@ -59,7 +59,7 @@
   [\[3\]Gomoku Resources][3]</br>
   [\[4\]Carbon Gomoku][4]</br>
   [\[5\]Convolutional and Recurrent Neural Network for Gomoku][5]</br>
-  [\[6\]Gomoku Dataset 9x9][6]</br>
+  [\[6\]Gomoku Dataset][6]</br>
   [\[7\]Gobang game with AI in 900 Lines][7]</br>
   [\[8\]Gomocup Manager][8]</br>
   [\[9\]Windows gomocup stub][9]</br>
@@ -103,7 +103,7 @@ QQ: 363599755</br>
 [3]: http://www.aiexp.info/gomoku-renju-resources-an-overview.html
 [4]: http://mczard.republika.pl/gomoku.en.html
 [5]: http://cs231n.stanford.edu/reports2016/109_Report.pdf
-[6]: https://pan.baidu.com/s/1eS7LBuq
+[6]: http://pan.baidu.com/s/1eSolIHc
 [7]: https://github.com/skywind3000/gobang
 [8]: http://gomocup.org/download-gomocup-manager/
 [9]: https://github.com/splendor-kill/MyGomocupStub
