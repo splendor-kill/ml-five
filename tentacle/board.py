@@ -247,3 +247,20 @@ class Board(object):
     def __str__(self):
         # grid = self.stones.reshape(-1, Board.BOARD_SIZE)
         return str(self.stones)
+
+    def whose_turn_now(self):
+        '''
+        Returns:
+        -------------
+        who: int
+            it is your turn
+        '''
+        stat = np.bincount(self.stones, minlength=3)
+
+        if stat[Board.STONE_EMPTY] == 0:
+            return Board.STONE_EMPTY  # end
+        if stat[Board.STONE_BLACK] == stat[Board.STONE_WHITE]:
+            return Board.STONE_BLACK  # black first, turn to black
+        if stat[Board.STONE_BLACK] == stat[Board.STONE_WHITE] + 1:
+            return Board.STONE_WHITE  # turn to while
+        raise Exception("illegal state")

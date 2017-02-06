@@ -73,26 +73,6 @@ class Game(object):
                 break
 
     @staticmethod
-    def whose_turn_now(board):
-        '''
-        Returns:
-        -------------
-        who: int
-            it is your turn
-        '''
-        stat = np.bincount(board.stones, minlength=3)
-#         print('stone stat.')
-#         print(stat)
-
-        if stat[Board.STONE_EMPTY] == 0:
-            return Board.STONE_EMPTY  # end
-        if stat[Board.STONE_BLACK] == stat[Board.STONE_WHITE]:
-            return Board.STONE_BLACK  # black first, turn to black
-        if stat[Board.STONE_BLACK] == stat[Board.STONE_WHITE] + 1:
-            return Board.STONE_WHITE  # turn to while
-        raise Exception("illegal state")
-
-    @staticmethod
     def possible_moves(board):
         '''
         Returns:
@@ -100,7 +80,7 @@ class Game(object):
             boards: Board list
         '''
 #         whose turn is it?
-        who = Game.whose_turn_now(board)
+        who = board.whose_turn_now()
 
 #         print("it is [%d]'s turn" % who)
 

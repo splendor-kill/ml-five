@@ -68,7 +68,7 @@ class Pre(object):
         self.starter_learning_rate = 0.001
         self.rl_global_step = 0
 
-        self.replay_memory_size = 10 * 1000
+        self.replay_memory_size = 1
         h, w, c = self.get_input_shape()
         self.replay_memory0 = np.zeros([self.replay_memory_size, h * w * c], dtype=np.float32)
         self.replay_memory1 = np.zeros([self.replay_memory_size, Pre.NUM_ACTIONS], dtype=np.float32)

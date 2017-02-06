@@ -1,3 +1,4 @@
+import copy
 from multiprocessing import Pool, Process, Queue
 import os
 import queue
@@ -13,34 +14,45 @@ from tentacle.strategy_dnn import StrategyDNN
 
 class Game(object):
     def __init__(self):
-        self.cur_player = None
-        self.cur_board = None
+        self.cur_board = Board()
+        self.cur_player = self.cur_board.whose_turn_now()
         self.is_over = False
         self.winner = None
-        
-    def move(self, player, location):
-        self.cur_board.put(location, player)
-        
-    def step(self):
-        pass
-        
+        self.history_states = []
+        self.history_actions = []
+        self.reward = 0
+
+    def move(self, loc):
+        old_board = copy(self.cur_board)
+        self.cur_board.move(loc[0], loc[1], self.cur_player)
+        self.cur_player = Board.oppo(self.cur_player)
+        self.is_over, self.winner, _ = self.cur_board.is_over(old_board)
+
+    def record_history(self, action):
+        self.history_states.append(np.copy(self.cur_board.stones))
+        self.history_states.append(action)
+
+    def calc_reward(self, stard_for):
+        assert self.is_over
+        if self.winner == 0:
+            self.reward = 0
+        elif self.winner == stard_for:
+            self.reward = 1
+        else:
+            self.reward = -1
 
 class Brain(object):
-    def __init__(self, fn_input, fn_model, brain_dir, summary_dir):
+    def __init__(self, fn_input_shape, fn_input, fn_model, brain_dir, summary_dir):
         self.brain_dir = brain_dir
         self.brain_file = os.path.join(self.brain_dir, 'model.ckpt')
         self.summary_dir = summary_dir
-        
-        self.dcnn = DCNN3(is_train=False)
-        self.get_input_shape = self.dcnn.get_input_shape
-        self.placeholder_inputs = self.dcnn.placeholder_inputs
-        self.model = self.model
-        
-        
-        self.graph = tf.Graph()      
+
+        self.fn_input_shape = fn_input_shape
+
+        self.graph = tf.Graph()
         with self.graph.as_default():
             self.states_pl, self.actions_pl = fn_input()
-            fn_model(self.states_pl)
+            fn_model(self.states_pl, self.actions_pl)
             init = tf.initialize_all_variables()
             self.summary_op = tf.merge_all_summaries()
             self.saver = tf.train.Saver(tf.trainable_variables())
@@ -48,16 +60,19 @@ class Brain(object):
         self.summary_writer = tf.train.SummaryWriter(self.summary_dir, self.graph)
         self.sess = tf.Session(graph=self.graph)
         self.sess.run(init)
-        
+
     def get_move_probs(self, states):
         h, w, c = self.get_input_shape()
         feed_dict = {
             self.states_pl: states.reshape((-1, h, w, c)),
         }
         return self.sess.run(self.predict_probs, feed_dict=feed_dict)
-    
+
     def save(self):
         self.saver.save(self.sess, self.brain_file)
+
+    def save_as(self, brain_file):
+        self.saver.save(self.sess, brain_file)
 
     def load(self):
         ckpt = tf.train.get_checkpoint_state(self.brain_dir)
@@ -73,11 +88,9 @@ class Transformer(object):
         self.dcnn = DCNN3(is_train=False)
         self.get_input_shape = self.dcnn.get_input_shape
         self.placeholder_inputs = self.dcnn.placeholder_inputs
-        
-        
-    def model(self):
-        pass
-    
+        self.model = self.dcnn.model
+        self.adapt_state = self.dcnn.adapt_state
+        self.policy_opt_op = self.dcnn.policy_opt_op
 
 
 class RLPolicy(object):
@@ -89,160 +102,161 @@ class RLPolicy(object):
     NUM_ITERS = 10000
     NEXT_OPPO_ITERS = 500
     NUM_PROCESSES = 4
-    
+
     WORK_DIR = '/home/splendor/fusor'
     SL_POLICY_DIR = os.path.join(WORK_DIR, 'brain')
-    RL_POLICY_DIR_PATTERN = re.compile('brain_rl_(\d+)')
+    SL_SUMMARY_DIR = os.path.join(WORK_DIR, 'summary')
+    RL_POLICY_DIR_PREFIX = 'brain_rl_'
+    RL_POLICY_DIR_PATTERN = re.compile(RL_POLICY_DIR_PREFIX + '(\d+)')
+    RL_SUMMARY_DIR_PATTERN = re.compile('summary_rl_(\d+)')
 
-    def __init__(self, policy_net, pool, params):
-        self.oppo_pool = []
-        self.policy_net = policy_net
-        self.brain_dirs = self.find_brains(RLPolicy.WORK_DIR)        
-        
-        self.games = {} # id -->Game        
+
+    def __init__(self, pool, params):
+        self.oppo_brain = self.find_rl_dirs(RLPolicy.WORK_DIR, RLPolicy.RL_POLICY_DIR_PATTERN)
+        self.oppo_summary = self.find_rl_dirs(RLPolicy.WORK_DIR, RLPolicy.RL_SUMMARY_DIR_PATTERN)
+        self.transformer = Transformer()
+
+        self.games = {}  # id -->Game
 
         self.policy1 = None
         self.policy2 = None
-        
-        
-        
-    
-    def reuse(self, dcnn):
-        def fn_input():
-            return dcnn.placeholder_inputs()
-        
-        def fn_model(states_pl, actions_pl):
-            predictions = dcnn.create_policy_net(states_pl)
-            
-            
-            
-        return fn_input, fn_model
-            
-        
+        self.policy1_stand_for = None
+        self.policy2_stand_for = None
 
-    def find_brains(self, root):
-        brains = {}
+    def find_rl_dirs(self, root, pat):
+        id2dir = {}
         for item in os.listdir(root):
             if not os.path.isdir(os.path.join(root, item)):
                 continue
-            mo = re.match(RLPolicy.RL_POLICY_DIR_PATTERN, item)
+            mo = re.match(pat, item)
             if not mo:
                 continue
-            brains[int(mo.group(1))] = item    
-        return brains
-        
-        
-        
+            id2dir[int(mo.group(1))] = item
+        return id2dir
+
+
     def setup_brain(self):
-
-            
-        
         if self.policy1 is None:
-            policy = Brain(sl.placeholder_inputs)
-        self.policy2 = None #random choice from oppo_pool
+            self.policy1 = Brain(self.transformer.get_input_shape,
+                           self.transformer.placeholder_inputs,
+                           self.transformer.model,
+                           RLPolicy.SL_POLICY_DIR,
+                           RLPolicy.SL_SUMMARY_DIR)
+        assert self.policy1 is not None
 
+        if self.policy2 is not None:
+            self.policy2.close()
+        self.policy2 = None  # random choice from oppo_pool
 
-        
+        policy_dir = RLPolicy.SL_POLICY_DIR
+        summary_dir = RLPolicy.SL_SUMMARY_DIR
+        if self.brain_dirs:
+            rl_brain_id = random.choice(self.oppo_brain.keys())
+            policy_dir = self.oppo_brain[rl_brain_id]
+            summary_dir = self.oppo_summary[rl_brain_id]
+
+        self.policy2 = Brain(self.transformer.get_input_shape,
+           self.transformer.placeholder_inputs,
+           self.transformer.model,
+           policy_dir,
+           summary_dir)
+
+        assert self.policy2 is not None
+
+        self.policy1_stand_for = random.choice([Board.STONE_BLACK, Board.STONE_WHITE])
+        self.policy2_stand_for = Board.oppo(self.policy1_stand_for.stand_for)
+
+    def save_as_oppo(self, i):
+        if not self.policy1:
+            return
+
+        file = RLPolicy.RL_POLICY_DIR_PREFIX + str(i)
+        path = os.path.join(RLPolicy.WORK_DIR, file)
+        if not os.path.exists(path):
+            os.makedirs(path)
+        self.policy1.save_as(path)
+        self.oppo_brain[i] = file
+
 
     def run_a_batch(self):
-        
+
         running_games = set()
         for i in range(RLPolicy.MINI_BATCH):
             self.games[i] = Game()
             running_games.add(i)
-            
+
         while running_games:
             next_running = set()
-            
+
             feed1 = []
             feed2 = []
             for i in self.running_games:
                 if self.games[i].is_over:
+                    self.games[i].calc_reward()
                     continue
                 next_running.add(i)
-                
-                if self.games[i].cur_player == Board.STONE_BLACK:
+
+                if self.games[i].cur_player == self.policy1_stand_for:
                     feed1.append(i)
-                elif self.games[i].cur_player == Board.STONE_WHITE:
+                elif self.games[i].cur_player == self.policy2_stand_for:
                     feed2.append(i)
-            
-            self.batch_proc(feed1, Board.STONE_BLACK)
-            self.batch_proc(feed2, Board.STONE_WHITE)
-                
+
+            self.batch_move(running_games, feed1, self.policy1, self.policy1_stand_for)
+            self.batch_move(running_games, feed2, self.policy2, self.policy2_stand_for)
+
             running_games = next_running
-        
-        self.reinforce()    
-        
-            
-    def run(self):        
+
+        self.reinforce()
+
+
+    def run(self):
         for i in range(RLPolicy.NUM_ITERS):
             if i % RLPolicy.NEXT_OPPO_ITERS == 0:
+                self.save_as_oppo()
                 self.setup_brain()
             self.run_a_batch()
-            
 
-    def batch_proc(self, batch, q1):
-        pass
 
-    
+    def batch_move(self, ids, policy, is_track):
+        ds = []
+        for i in ids:
+            state, _ = self.transformer.adapt_state(self.games[i].cur_board.stones)
+            ds.append(state)
+        ds = np.array(ds)
+        probs = policy.get_move_probs(ds)
+
+        best_moves = np.argmax(probs, 1)
+        for i, best_move in zip(ids, best_moves):
+            loc = np.unravel_index(best_move, (Board.BOARD_SIZE, Board.BOARD_SIZE))
+
+            board = self.games[i].cur_board
+            is_legal = board.is_legal(loc[0], loc[1])
+            if not is_legal:
+                # print('best move:', best_move, ', loc:', loc, 'is legal:', is_legal)
+                rand_loc = np.random.choice(np.where(board.stones == Board.STONE_EMPTY)[0], 1)[0]
+                loc = np.unravel_index(rand_loc, (Board.BOARD_SIZE, Board.BOARD_SIZE))
+#                 print(self.stand_for,' get illegal, random choice:', loc)
+
+            if is_track:
+                self.games[i].record_history(loc)
+            self.games[i].move(loc)
+
+
     def reinforce(self):
-        if len(self.oppo_pool) == 0:
-            self.oppo_pool.append(StrategyDNN(is_train=False, is_revive=True, is_rl=False))
+        states = []
+        actions = []
+        rewards = []
 
-        s1 = StrategyDNN(is_train=False, is_revive=True, is_rl=True)
-        s2 = random.choice(self.oppo_pool)
+        for game in self.games:
+            if game.reward == 0:
+                continue
 
-        stat = []
-        win1, win2, draw = 0, 0, 0
 
-        # n_lose = 0
-        iter_n = 100
-        i = 0
-        while True:
-            print('iter:', i)
+        fd = {self.states_pl: states, self.actions_pl: actions, self.rewards_pl: rewards}
+        self.sess.run(self.transformer.policy_opt_op, feed_dict=fd)
 
-            for _ in range(1000):
-                s1.stand_for = random.choice([Board.STONE_BLACK, Board.STONE_WHITE])
-                s2.stand_for = Board.oppo(s1.stand_for)
-
-                g = Game(Board.rand_generate_a_position(), s1, s2, observer=s1)
-                g.step_to_end()
-                win1 += 1 if g.winner == s1.stand_for else 0
-                win2 += 1 if g.winner == s2.stand_for else 0
-                draw += 1 if g.winner == Board.STONE_EMPTY else 0
-
-#             if win1 > win2:
-#                 s1_c = s1.mind_clone()
-#                 self.oppo_pool.append(s1_c)
-#                 s2 = random.choice(self.oppo_pool)
-#                 n_lose = 0
-#                 print('stronger, oppos:', len(self.oppo_pool))
-#             elif win1 < win2:
-#                 n_lose += 1
-#
-#             if n_lose >= 50:
-#                 break
-
-            if i % 1 == 0 or i + 1 == iter_n:
-                total = win1 + win2 + draw
-                win1_r = win1 / total
-                win2_r = win2 / total
-                draw_r = draw / total
-                print("iter:%d, win: %.3f, loss: %.3f, tie: %.3f" % (i, win1_r, win2_r, draw_r))
-                stat.append([win1_r, win2_r, draw_r])
-
-            i += 1
-
-            if i > iter_n:
-                break
-
-        stat = np.array(stat)
-        print('stat. shape:', stat.shape)
-        np.savez('/home/splendor/fusor/stat.npz', stat=np.array(stat))
-        self.strategy_1 = self.strategy_2 = s1
 
 
 if __name__ == '__main__':
-    with Pool(processes=4) as pool:
-        rl = RLPolicy(pool)
-        rl.start()
+    rl = RLPolicy()
+    rl.run()
