@@ -75,8 +75,8 @@ class DCNN3(Pre):
         h_conv22 = tf.nn.relu(tf.nn.conv2d(h_conv21, W_22, [1, 1, 1, 1], padding='SAME') + b_22)
         h_conv23 = tf.nn.relu(tf.nn.conv2d(h_conv22, W_23, [1, 1, 1, 1], padding='SAME') + b_23)
 
-        self.conv_out_dim = h_conv23.get_shape()[1:].num_elements()
-        conv_out = tf.reshape(h_conv23, [-1, self.conv_out_dim])
+        conv_out_dim = h_conv23.get_shape()[1:].num_elements()
+        conv_out = tf.reshape(h_conv23, [-1, conv_out_dim])
         return conv_out
 
     def create_policy_net(self, states_pl):
@@ -87,7 +87,8 @@ class DCNN3(Pre):
         conv = self.create_conv_net(states_pl)
         conv = tf.identity(conv, 'value_net_conv')
         num_hidden = 128
-        W_3 = tf.Variable(tf.zeros([self.conv_out_dim, num_hidden], tf.float32))
+        conv_out_dim = conv.get_shape()[1]
+        W_3 = tf.Variable(tf.zeros([conv_out_dim, num_hidden], tf.float32))
         b_3 = tf.Variable(tf.zeros([num_hidden], tf.float32))
         W_4 = tf.Variable(tf.zeros([num_hidden, 1], tf.float32))
         b_4 = tf.Variable(tf.zeros([1], tf.float32))
