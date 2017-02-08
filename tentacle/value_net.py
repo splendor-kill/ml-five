@@ -33,7 +33,7 @@ class ValueNet(object):
         return self.sess.run(self.value_outputs, feed_dict=feed_dict)
 
     def save(self):
-        self.saver.saver(self.sess, self.brain_file)
+        self.saver.save(self.sess, self.brain_file)
 
     def load(self):
         ckpt = tf.train.get_checkpoint_state(self.brain_dir)

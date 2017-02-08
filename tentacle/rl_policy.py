@@ -79,10 +79,11 @@ class Brain(object):
         self.sess.run(self.policy_opt_op, feed_dict=feed)
 
     def save(self):
-        self.saver.saver(self.sess, self.brain_file)
+        self.saver.save(self.sess, self.brain_file)
 
     def save_as(self, brain_file):
-        self.saver.saver(self.sess, brain_file)
+        print('save to:', brain_file)
+        self.saver.save(self.sess, brain_file)
 
     def load(self):
         ckpt = tf.train.get_checkpoint_state(self.brain_dir)
@@ -166,7 +167,6 @@ class RLPolicy(object):
     MINI_BATCH = 128
     NUM_ITERS = 10000
     NEXT_OPPO_ITERS = 500
-    NUM_PROCESSES = 4
 
     WORK_DIR = '/home/splendor/fusor'
     SL_POLICY_DIR = os.path.join(WORK_DIR, 'brain')
@@ -175,6 +175,7 @@ class RLPolicy(object):
     RL_POLICY_DIR_PATTERN = re.compile(RL_POLICY_DIR_PREFIX + '(\d+)')
     VALUE_NET_DIR_PREFIX = 'brain_value_'
     VALUE_NET_DIR_PATTERN = re.compile(VALUE_NET_DIR_PREFIX + '(\d+)')
+    RL_SUMMARY_DIR_PREFIX = 'summary_rl_'
     RL_SUMMARY_DIR_PATTERN = re.compile('summary_rl_(\d+)')
 
     def __init__(self):
@@ -182,6 +183,8 @@ class RLPolicy(object):
         self.oppo_summary = self.find_dirs(RLPolicy.WORK_DIR, RLPolicy.RL_SUMMARY_DIR_PATTERN)
         self.value_net_dirs = self.find_dirs(RLPolicy.WORK_DIR, RLPolicy.VALUE_NET_DIR_PATTERN)
         self.transformer = Transformer()
+        print('oppo brains:', self.oppo_brain)
+        print('oppo summary:', self.oppo_summary)
 
         self.games = {}  # id -->Game
 
@@ -229,9 +232,11 @@ class RLPolicy(object):
         policy_dir = RLPolicy.SL_POLICY_DIR
         summary_dir = RLPolicy.SL_SUMMARY_DIR
         if self.oppo_brain:
-            rl_brain_id = random.choice(self.oppo_brain.keys())
+            rl_brain_id = random.choice(tuple(self.oppo_brain.keys()))
+            print('the chosen oppo:', rl_brain_id)
             policy_dir = self.oppo_brain[rl_brain_id]
-            summary_dir = self.oppo_summary[rl_brain_id]
+            summary_dir = self.oppo_summary.get(rl_brain_id, RLPolicy.RL_SUMMARY_DIR_PREFIX + str(rl_brain_id))
+            summary_dir = os.path.join(RLPolicy.WORK_DIR, summary_dir)
 
         self.policy2 = Brain(self.transformer.get_input_shape,
            self.transformer.placeholder_inputs,
@@ -252,7 +257,7 @@ class RLPolicy(object):
         path = os.path.join(RLPolicy.WORK_DIR, file)
         if not os.path.exists(path):
             os.makedirs(path)
-        self.policy1.save_as(path)
+        self.policy1.save_as(os.path.join(path, 'model.ckpt'))
         self.oppo_brain[i] = file
 
     def run_a_batch(self):
@@ -288,6 +293,7 @@ class RLPolicy(object):
 
     def run(self):
         for i in range(RLPolicy.NUM_ITERS):
+            print('iter:', i)
             if i % RLPolicy.NEXT_OPPO_ITERS == 0:
                 self.save_as_oppo(i)
                 self.setup_brain()
@@ -345,11 +351,11 @@ class RLPolicy(object):
         self.policy1.reinforce(states, actions, rewards, values)
 
     def release(self):
-        if not self.policy1:
+        if self.policy1 is not None:
             self.policy1.close()
-        if not self.policy2:
+        if self.policy2 is not None:
             self.policy2.close()
-        if not self.value_net:
+        if self.value_net is not None:
             self.value_net.close()
 
 if __name__ == '__main__':
