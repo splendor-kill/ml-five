@@ -5,16 +5,54 @@ import queue
 import random
 import re
 
+from scipy.misc import logsumexp
+
 import numpy as np
 import tensorflow as tf
 from tentacle.board import Board
-from tentacle.dnn3 import DCNN3
 from tentacle.value_net import ValueNet
+
+
+def log_softmax(vec):
+    return vec - logsumexp(vec)
+
+def softmax(vec):
+    return np.exp(log_softmax(vec))
+
+def one_select(dist, mask, tau):
+    assert dist.ndim == 1
+    assert dist.shape == mask.shape
+    assert tau > 0
+
+    legal_locs = np.where(mask == 0)[0]
+    legal_vals = dist[mask == 0]
+    legal_vals /= tau
+    probs = softmax(legal_vals)
+#     idx = np.argmax(np.random.multinomial(1, probs))
+    idx = np.random.choice(len(probs), p=probs)
+    return legal_locs[idx]
+
+def softmax_action(dist, mask, tau=1.):
+    assert dist.shape == mask.shape
+    assert tau > 0
+
+    only_one = dist.ndim == 1
+    if only_one:
+        dist = dist[np.newaxis, :]
+        mask = mask[np.newaxis, :]
+
+    idx = []
+    for p, m in zip(dist, mask):
+        idx.append(one_select(p, m, tau))
+    idx = np.array(idx)
+
+    return idx[0] if only_one else idx
+
 
 
 class Game(object):
     def __init__(self):
-        self.cur_board = Board()
+        self.cur_board = Board()  # .rand_generate_a_position()
         self.cur_player = self.cur_board.whose_turn_now()
         self.is_over = False
         self.winner = None
@@ -28,9 +66,16 @@ class Game(object):
         self.cur_player = Board.oppo(self.cur_player)
         self.is_over, self.winner, _ = self.cur_board.is_over(old_board)
 
+    def one_hot(self, a, box):
+        sz = 1 if isinstance(a, (int, np.integer)) else len(a)
+        b = np.zeros((sz, box), dtype=np.float32)
+        b[np.arange(sz), a] = 1.
+        return b
+
     def record_history(self, state, action):
         self.history_states.append(state)
-        self.history_actions.append(action)
+        NUM_ACTIONS = Board.BOARD_SIZE_SQ
+        self.history_actions.append(self.one_hot(action, NUM_ACTIONS))
 
     def calc_reward(self, stard_for):
         assert self.is_over
@@ -49,14 +94,15 @@ class Brain(object):
 
         self.get_input_shape = fn_input_shape
 
+        NUM_ACTIONS = Board.BOARD_SIZE_SQ
         self.graph = tf.Graph()
         with self.graph.as_default():
             self.states_pl, _ = fn_input()
-            self.actions_pl = tf.placeholder(tf.int32, [None])
+            self.actions_pl = tf.placeholder(tf.float32, [None, NUM_ACTIONS])
             self.values_pl = tf.placeholder(tf.float32, [None])
-            self.policy_opt_op, self.predict_probs, self.rewards_pl = fn_model(self.states_pl, self.actions_pl, self.values_pl)
-            init = tf.initialize_all_variables()
+            self.policy_opt_op, self.predict_probs, self.rewards_pl, self.gstep, self.loss = fn_model(self.states_pl, self.actions_pl, self.values_pl)
             self.summary_op = tf.merge_all_summaries()
+            init = tf.initialize_all_variables()
             self.saver = tf.train.Saver(tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope="policy_net"))
 
         self.summary_writer = tf.train.SummaryWriter(self.summary_dir, self.graph)
@@ -72,11 +118,26 @@ class Brain(object):
 
     def reinforce(self, states, actions, rewards, values):
         h, w, c = self.get_input_shape()
-        feed = {self.states_pl: states.reshape((-1, h, w, c)),
-                self.actions_pl: actions,
-                self.rewards_pl: rewards,
-                self.values_pl: values}
-        self.sess.run(self.policy_opt_op, feed_dict=feed)
+        NUM_ACTIONS = Board.BOARD_SIZE_SQ
+        num_per_batch = states.shape[0]
+        times = states.shape[0] // num_per_batch
+        for i in range(times):
+            begin = i * num_per_batch
+            end = begin + num_per_batch
+
+            feed = {self.states_pl: states[begin:end].reshape((-1, h, w, c)),
+                    self.actions_pl: actions[begin:end].reshape((-1, NUM_ACTIONS)),
+                    self.rewards_pl: rewards[begin:end],
+                    self.values_pl: values[begin:end]}
+
+            self.sess.run(self.policy_opt_op, feed_dict=feed)
+
+            gstep = tf.train.global_step(self.sess, self.gstep)
+#             if gstep % 500 == 0:
+            summary_str = self.sess.run(self.summary_op, feed_dict=feed)
+            self.summary_writer.add_summary(summary_str, global_step=gstep)
+            self.summary_writer.flush()
+
 
     def save(self):
         self.saver.save(self.sess, self.brain_file)
@@ -99,29 +160,115 @@ class Brain(object):
 
 class Transformer(object):
     def __init__(self):
-        self.dcnn = DCNN3(is_train=False, is_revive=False, is_rl=True)
-        self.dcnn.run()
-        self.get_input_shape = self.dcnn.get_input_shape
-        self.placeholder_inputs = self.dcnn.placeholder_inputs
-        self.adapt_state = self.dcnn.adapt_state
+        pass
+
+    def adapt_state(self, board):
+        black = (board == Board.STONE_BLACK).astype(float)
+        white = (board == Board.STONE_WHITE).astype(float)
+        empty = (board == Board.STONE_EMPTY).astype(float)
+
+        # switch perspective
+        bn = np.count_nonzero(black)
+        wn = np.count_nonzero(white)
+        if bn != wn:  # if it is white turn, swith it
+            black, white = white, black
+
+        image = np.dstack((black, white, empty)).ravel()
+        legal = empty.astype(bool)
+        return image, legal
+
+    def placeholder_inputs(self):
+        NUM_ACTIONS = Board.BOARD_SIZE_SQ
+        h, w, c = self.get_input_shape()
+        states = tf.placeholder(tf.float32, [None, h, w, c])  # NHWC
+        actions = tf.placeholder(tf.float32, [None, NUM_ACTIONS])
+        return states, actions
+
+    def get_input_shape(self):
+        NUM_CHANNELS = 3
+        return Board.BOARD_SIZE, Board.BOARD_SIZE, NUM_CHANNELS
+
+    def weight_variable(self, shape):
+        initial = tf.truncated_normal(shape, stddev=0.01)
+        return tf.Variable(initial)
+
+    def bias_variable(self, shape):
+        initial = tf.constant(0.1, shape=shape)
+        return tf.Variable(initial)
+
+    def create_conv_net(self, states_pl):
+        NUM_CHANNELS = 3
+        ch1 = 32
+        W_1 = self.weight_variable([3, 3, NUM_CHANNELS, ch1])
+        b_1 = self.bias_variable([ch1])
+
+        ch = 32
+        W_2 = self.weight_variable([3, 3, ch1, ch])
+        b_2 = self.bias_variable([ch])
+        W_21 = self.weight_variable([3, 3, ch, ch])
+        b_21 = self.bias_variable([ch])
+        W_22 = self.weight_variable([3, 3, ch, ch])
+        b_22 = self.bias_variable([ch])
+        W_23 = self.weight_variable([1, 1, ch, 1])
+        b_23 = self.bias_variable([1])
+
+        h_conv1 = tf.nn.relu(tf.nn.conv2d(states_pl, W_1, [1, 1, 1, 1], padding='SAME') + b_1)
+        h_conv2 = tf.nn.relu(tf.nn.conv2d(h_conv1, W_2, [1, 1, 1, 1], padding='SAME') + b_2)
+        h_conv21 = tf.nn.relu(tf.nn.conv2d(h_conv2, W_21, [1, 1, 1, 1], padding='SAME') + b_21)
+        h_conv22 = tf.nn.relu(tf.nn.conv2d(h_conv21, W_22, [1, 1, 1, 1], padding='SAME') + b_22)
+        h_conv23 = tf.nn.relu(tf.nn.conv2d(h_conv22, W_23, [1, 1, 1, 1], padding='SAME') + b_23)
+
+        conv_out_dim = h_conv23.get_shape()[1:].num_elements()
+        conv_out = tf.reshape(h_conv23, [-1, conv_out_dim])
+        return conv_out
+
+    def create_policy_net(self, states_pl):
+        conv = self.create_conv_net(states_pl)
+        return conv
+
+    def create_value_net(self, states_pl):
+        conv = self.create_conv_net(states_pl)
+        conv = tf.identity(conv, 'value_net_conv')
+        num_hidden = 128
+        conv_out_dim = conv.get_shape()[1]
+        W_3 = tf.Variable(tf.zeros([conv_out_dim, num_hidden], tf.float32))
+        b_3 = tf.Variable(tf.zeros([num_hidden], tf.float32))
+        W_4 = tf.Variable(tf.zeros([num_hidden, 1], tf.float32))
+        b_4 = tf.Variable(tf.zeros([1], tf.float32))
+
+        hidden = tf.nn.relu(tf.matmul(conv, W_3) + b_3)
+        fc_out = tf.matmul(hidden, W_4) + b_4
+        return fc_out
 
     def model(self, states_pl, actions_pl, value_inputs_pl):
+        global_step = tf.Variable(0, name='global_step', trainable=False)
+
+        rewards_pl = tf.placeholder(tf.float32, shape=[None])
+        delta = rewards_pl - value_inputs_pl
+        print('delta:', delta.get_shape())
+        advantages = delta
+
         with tf.variable_scope("policy_net"):
-            predictions = self.dcnn.create_policy_net(states_pl)
+            predictions = self.create_policy_net(states_pl)
 #         with tf.variable_scope("value_net"):
-#             value_outputs = self.dcnn.create_value_net(states_pl)
+#             value_outputs = self.create_value_net(states_pl)
 
         policy_net_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope="policy_net")
 
-        pg_loss = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(predictions, actions_pl))
-        reg_loss = tf.reduce_sum([tf.reduce_sum(tf.square(x)) for x in policy_net_vars])
-        loss = pg_loss + 0.001 * reg_loss
+#         print('pred shape:', predictions.get_shape(), 'actions_pl:', actions_pl.get_shape())
+        pg_loss = tf.nn.softmax_cross_entropy_with_logits(predictions, actions_pl)
 
-        tf.scalar_summary("raw_policy_loss", pg_loss)
-        tf.scalar_summary("reg_policy_loss", reg_loss)
+#         pg_loss = -actions_pl * tf.nn.log_softmax(predictions)
+        print('pg_loss shape:', pg_loss.get_shape())
+        reg_loss = tf.reduce_mean([tf.nn.l2_loss(x) for x in policy_net_vars])
+        loss = tf.reduce_mean(pg_loss * advantages) + 0.001 * reg_loss
+        print('loss shape:', loss.get_shape())
+
+#         tf.scalar_summary("raw_policy_loss", pg_loss)
+#         tf.scalar_summary("reg_policy_loss", reg_loss)
         tf.scalar_summary("all_policy_loss", loss)
 
-        optimizer = tf.train.AdamOptimizer(0.0001)
+#         optimizer = tf.train.AdamOptimizer(0.0001)
 #         opt_op = optimizer.minimize(loss)
 
         predict_probs = tf.nn.softmax(predictions)
@@ -129,17 +276,18 @@ class Transformer(object):
 
 #         eval_correct = tf.reduce_sum(tf.cast(eq, tf.int32))
 
-        rewards_pl = tf.placeholder(tf.float32, shape=[None])
 
 #         value_net_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope="value_net")
-        delta = rewards_pl - value_inputs_pl
-        advantages = tf.reduce_mean(delta)
+#         optimizer = tf.train.GradientDescentOptimizer(0.0001)
+#         policy_grads = optimizer.compute_gradients(loss, policy_net_vars)
+#         for i, (grad, var) in enumerate(policy_grads):
+#             if grad is not None:
+# #                 print('grad shape:', grad.get_shape(), type(grad), var.name)
+#                 policy_grads[i] = (grad * advantages, var)
+#         policy_opt_op = optimizer.apply_gradients(policy_grads, global_step=global_step)
+#         policy_opt_op = tf.train.GradientDescentOptimizer(0.0001).minimize(loss, global_step=global_step)
+        policy_opt_op = tf.train.AdamOptimizer().minimize(loss, global_step=global_step)
 
-        policy_grads = optimizer.compute_gradients(loss, policy_net_vars)
-        for i, (grad, var) in enumerate(policy_grads):
-            if grad is not None:
-                policy_grads[i] = (-grad * advantages, var)
-        policy_opt_op = tf.train.GradientDescentOptimizer(0.0001).apply_gradients(policy_grads)
 
 #         mean_square_loss = tf.reduce_mean(tf.squared_difference(rewards_pl, value_outputs))
 #         value_reg_loss = tf.reduce_sum([tf.reduce_sum(tf.square(x)) for x in value_net_vars])
@@ -147,15 +295,16 @@ class Transformer(object):
 #         value_opt_op = optimizer.minimize(value_loss)
 
 
-        tf.scalar_summary("advantages", advantages)
+#         tf.scalar_summary("advantages", advantages)
+
 #         tf.scalar_summary("raw_value_loss", mean_square_loss)
 #         tf.scalar_summary("reg_value_loss", value_reg_loss)
 #         tf.scalar_summary("all_value_loss", value_loss)
-        return policy_opt_op, predict_probs, rewards_pl
+        return policy_opt_op, predict_probs, rewards_pl, global_step, loss
 
     def model_value_net(self, states_pl):
         with tf.variable_scope("value_net"):
-            value_outputs = self.dcnn.create_value_net(states_pl)
+            value_outputs = self.create_value_net(states_pl)
         return value_outputs
 
 
@@ -165,8 +314,8 @@ class RLPolicy(object):
     '''
 
     MINI_BATCH = 128
-    NUM_ITERS = 10000
-    NEXT_OPPO_ITERS = 500
+    NUM_ITERS = 3000
+    NEXT_OPPO_ITERS = 200
 
     WORK_DIR = '/home/splendor/fusor'
     SL_POLICY_DIR = os.path.join(WORK_DIR, 'brain')
@@ -194,6 +343,8 @@ class RLPolicy(object):
         self.policy2_stand_for = None
 
         self.value_net = self.find_value_net()
+
+        self.win = 0
 
     def find_value_net(self):
         if not self.value_net_dirs:
@@ -235,8 +386,8 @@ class RLPolicy(object):
             rl_brain_id = random.choice(tuple(self.oppo_brain.keys()))
             print('the chosen oppo:', rl_brain_id)
             policy_dir = self.oppo_brain[rl_brain_id]
-            summary_dir = self.oppo_summary.get(rl_brain_id, RLPolicy.RL_SUMMARY_DIR_PREFIX + str(rl_brain_id))
-            summary_dir = os.path.join(RLPolicy.WORK_DIR, summary_dir)
+#             summary_dir = self.oppo_summary.get(rl_brain_id, RLPolicy.RL_SUMMARY_DIR_PREFIX + str(0))
+#             summary_dir = os.path.join(RLPolicy.WORK_DIR, summary_dir)
 
         self.policy2 = Brain(self.transformer.get_input_shape,
            self.transformer.placeholder_inputs,
@@ -292,39 +443,48 @@ class RLPolicy(object):
 
 
     def run(self):
-        for i in range(RLPolicy.NUM_ITERS):
-            print('iter:', i)
+        self.setup_brain()
+        for i in range(1, RLPolicy.NUM_ITERS + 1):
+            self.win = 0
             if i % RLPolicy.NEXT_OPPO_ITERS == 0:
                 self.save_as_oppo(i)
                 self.setup_brain()
             self.run_a_batch()
+            print('iter: {}, win: {:.3f}'.format(i, self.win / (1 * RLPolicy.MINI_BATCH)))
 
+    def select_by_prob(self, pmfs, legals):
+        return softmax_action(pmfs, ~legals)
+
+    def select_greedily(self, pmfs, legals):
+        v = np.ma.masked_array(pmfs, ~legals)
+        return v.argmax(1)
 
     def batch_move(self, ids, policy, is_track):
+        if not ids:
+            return
         ds = []
+        legals = []
         for i in ids:
-            state, _ = self.transformer.adapt_state(self.games[i].cur_board.stones)
+            state, legal = self.transformer.adapt_state(self.games[i].cur_board.stones)
             ds.append(state)
+            legals.append(legal)
         ds = np.array(ds)
+        legals = np.array(legals)
         probs = policy.get_move_probs(ds)
 
-        best_moves = np.argmax(probs, 1)
+        best_moves = self.select_by_prob(probs, legals)
+
         for i, best_move in zip(ids, best_moves):
             loc = np.unravel_index(best_move, (Board.BOARD_SIZE, Board.BOARD_SIZE))
 
             board = self.games[i].cur_board
             is_legal = board.is_legal(loc[0], loc[1])
-            if not is_legal:
-                # print('best move:', best_move, ', loc:', loc, 'is legal:', is_legal)
-                rand_loc = np.random.choice(np.where(board.stones == Board.STONE_EMPTY)[0], 1)[0]
-                loc = np.unravel_index(rand_loc, (Board.BOARD_SIZE, Board.BOARD_SIZE))
-#                 print(self.stand_for,' get illegal, random choice:', loc)
+            assert is_legal
 
             if is_track:
                 state, _ = self.transformer.adapt_state(board.stones)
                 self.games[i].record_history(state, np.ravel_multi_index(loc, (Board.BOARD_SIZE, Board.BOARD_SIZE)))
             self.games[i].move(loc)
-
 
     def reinforce(self):
         states = []
@@ -334,6 +494,8 @@ class RLPolicy(object):
         for game in self.games.values():
             if game.reward == 0:
                 continue
+            if game.reward == 1:
+                self.win += 1
 
             assert len(game.history_states) == len(game.history_actions)
             states.extend(game.history_states)
@@ -343,6 +505,8 @@ class RLPolicy(object):
         h, w, c = self.transformer.get_input_shape()
         states = np.array(states)
         states = states.reshape((-1, h, w, c))
+        actions = np.array(actions)
+        rewards = np.array(rewards)
 
         values = np.zeros(states.shape[0], dtype=np.float32)
         if self.value_net is not None:

@@ -206,7 +206,7 @@ class Pre(object):
 
             self.summary_op = tf.merge_all_summaries()
 
-            self.saver = tf.train.Saver(tf.trainable_variables())
+            self.saver = tf.train.Saver(tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope="policy_net"))#tf.trainable_variables())
 
             init = tf.initialize_all_variables()
 
@@ -220,7 +220,8 @@ class Pre(object):
         ckpt = tf.train.get_checkpoint_state(Pre.BRAIN_DIR)
         if ckpt and ckpt.model_checkpoint_path:
             self.saver.restore(self.sess, ckpt.model_checkpoint_path)
-            self.gstep = int(ckpt.model_checkpoint_path.rsplit('-', 1)[1])
+            a = ckpt.model_checkpoint_path.rsplit('-', 1)
+            self.gstep = int(a[1]) if len(a) > 1 else 1
 
     def fill_feed_dict(self, data_set, states_pl, actions_pl, batch_size=None):
         batch_size = batch_size or Pre.BATCH_SIZE
