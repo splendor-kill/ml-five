@@ -272,7 +272,7 @@ class Transformer(object):
 #         optimizer = tf.train.AdamOptimizer(0.0001)
 #         opt_op = optimizer.minimize(loss)
 
-        predict_probs = tf.nn.softmax(predictions)
+        predict_probs = predictions  # tf.nn.softmax(predictions)
 #         eq = tf.equal(tf.argmax(predict_probs, 1), tf.argmax(actions_pl, 1))
 
 #         eval_correct = tf.reduce_sum(tf.cast(eq, tf.int32))
@@ -510,6 +510,7 @@ class RLPolicy(object):
     def reinforce(self):
         states = []
         actions = []
+        players = []
         rewards = []
 
         for game in self.games.values():
@@ -520,15 +521,15 @@ class RLPolicy(object):
 
             assert len(game.history_states) == len(game.history_actions)
             states.extend(game.history_states)
-            actions.extend(game.history_actions)
+            players.extend([row[0] for row in game.history_actions])
+            actions.extend([row[1] for row in game.history_actions])
             rewards.extend([game.reward] * len(game.history_states))
 
         h, w, c = self.transformer.get_input_shape()
         states = np.array(states)
         states = states.reshape((-1, h, w, c))
+        players = np.array(players)
         actions = np.array(actions)
-        players = actions[:, 0]
-        actions = actions[:, 1]
         rewards = np.array(rewards)
 
         values = np.zeros(states.shape[0], dtype=np.float32)
@@ -673,7 +674,7 @@ class RLPolicy(object):
 
 if __name__ == '__main__':
     rl = RLPolicy()
-#     rl.run()
+    rl.run()
 #     rl.gen_dataset_for_train_value_net()
-    rl.train_value_net()
+#     rl.train_value_net()
     rl.release()
