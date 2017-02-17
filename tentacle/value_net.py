@@ -1,4 +1,5 @@
 import gc
+import math
 import os
 import time
 
@@ -9,14 +10,15 @@ from tentacle.data_set import DataSet
 from tentacle.ds_loader import DatasetLoader
 
 
-DATASET_CAPACITY = 32 * 8000
+DATASET_CAPACITY = 16 * 8000
 BATCH_SIZE = 32
 
 class ValueNet(object):
 
-    def __init__(self, brain_dir):
+    def __init__(self, brain_dir, summary_dir):
         self.brain_dir = brain_dir
         self.brain_file = os.path.join(self.brain_dir, 'model.ckpt')
+        self.summary_dir = summary_dir
 
         self._has_more_data = True
 
@@ -30,7 +32,7 @@ class ValueNet(object):
             self.summary_op = tf.merge_all_summaries()
             init = tf.initialize_all_variables()
             self.saver = tf.train.Saver(tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope="value_net"))
-
+        self.summary_writer = tf.train.SummaryWriter(self.summary_dir, self.graph)
         self.sess = tf.Session(graph=self.graph)
         self.sess.run(init)
 
@@ -53,19 +55,6 @@ class ValueNet(object):
         return tf.Variable(initial)
 
     def create_value_net(self, states_pl):
-        conv = self.create_conv_net(states_pl)
-        num_hidden = 128
-        conv_out_dim = conv.get_shape()[1]
-        W_3 = tf.Variable(tf.zeros([conv_out_dim, num_hidden], tf.float32))
-        b_3 = tf.Variable(tf.zeros([num_hidden], tf.float32))
-        W_4 = tf.Variable(tf.zeros([num_hidden, 1], tf.float32))
-        b_4 = tf.Variable(tf.zeros([1], tf.float32))
-
-        hidden = tf.nn.relu(tf.matmul(conv, W_3) + b_3)
-        fc_out = tf.matmul(hidden, W_4) + b_4
-        return fc_out
-
-    def create_conv_net(self, states_pl):
         NUM_CHANNELS = 4
         ch1 = 32
         W_1 = self.weight_variable([3, 3, NUM_CHANNELS, ch1])
@@ -78,18 +67,29 @@ class ValueNet(object):
         b_21 = self.bias_variable([ch])
         W_22 = self.weight_variable([3, 3, ch, ch])
         b_22 = self.bias_variable([ch])
-        W_23 = self.weight_variable([1, 1, ch, 1])
-        b_23 = self.bias_variable([1])
+#         W_23 = self.weight_variable([1, 1, ch, 1])
+#         b_23 = self.bias_variable([1])
 
         h_conv1 = tf.nn.relu(tf.nn.conv2d(states_pl, W_1, [1, 1, 1, 1], padding='SAME') + b_1)
         h_conv2 = tf.nn.relu(tf.nn.conv2d(h_conv1, W_2, [1, 1, 1, 1], padding='SAME') + b_2)
         h_conv21 = tf.nn.relu(tf.nn.conv2d(h_conv2, W_21, [1, 1, 1, 1], padding='SAME') + b_21)
         h_conv22 = tf.nn.relu(tf.nn.conv2d(h_conv21, W_22, [1, 1, 1, 1], padding='SAME') + b_22)
-        h_conv23 = tf.nn.relu(tf.nn.conv2d(h_conv22, W_23, [1, 1, 1, 1], padding='SAME') + b_23)
+#         h_conv23 = tf.nn.relu(tf.nn.conv2d(h_conv22, W_23, [1, 1, 1, 1], padding='SAME') + b_23)
 
-        conv_out_dim = h_conv23.get_shape()[1:].num_elements()
-        conv_out = tf.reshape(h_conv23, [-1, conv_out_dim])
-        return conv_out
+        conv_out_dim = h_conv22.get_shape()[1:].num_elements()
+        conv_out = tf.reshape(h_conv22, [-1, conv_out_dim])
+
+        num_hidden = 1
+
+        W_3 = tf.Variable(tf.zeros([conv_out_dim, num_hidden], tf.float32))
+        b_3 = tf.Variable(tf.zeros([num_hidden], tf.float32))
+#         W_4 = tf.Variable(tf.zeros([num_hidden, 1], tf.float32))
+#         b_4 = tf.Variable(tf.zeros([1], tf.float32))
+
+#         hidden = tf.nn.relu(tf.matmul(conv_out, W_3) + b_3)
+#         fc_out = tf.matmul(hidden, W_4) + b_4
+        fc_out = tf.tanh(tf.matmul(conv_out, W_3) + b_3)
+        return fc_out
 
     def model(self, states_pl, rewards_pl):
         global_step = tf.Variable(0, name='global_step', trainable=False)
@@ -170,36 +170,34 @@ class ValueNet(object):
         NUM_STEPS = self.ds_train.num_examples // BATCH_SIZE
         print('total num steps:', NUM_STEPS)
         start_time = time.time()
-        train_accuracy = 0.
-        test_accuracy = 0.
+        train_mse = 0.
         for step in range(1, NUM_STEPS + 1):
             feed_dict = self.fill_feed_dict(self.ds_train, self.states_pl, self.rewards_pl)
-            self.sess.run(self.opt_op, feed_dict=feed_dict)
+            _, train_mse = self.sess.run([self.opt_op, self.mse], feed_dict=feed_dict)
 
             if step % 1000 == 0:
-                summary_str = self.sess.run(self.summary_op, feed_dict=feed_dict)
-                self.summary_writer.add_summary(summary_str, self.gstep)
+                summary_str, gstep = self.sess.run([self.summary_op, self.global_step], feed_dict=feed_dict)
+                self.summary_writer.add_summary(summary_str, gstep)
                 self.summary_writer.flush()
 
             if step == NUM_STEPS:
                 self.saver.save(self.sess, self.brain_file, global_step=self.global_step)
-                train_accuracy = self.do_eval(self.mse, self.states_pl, self.rewards_pl, self.ds_train)
 
         duration = time.time() - start_time
-        test_accuracy = self.do_eval(self.mse, self.states_pl, self.rewards_pl, self.ds_test)
+        test_mse = self.do_eval(self.mse, self.states_pl, self.rewards_pl, self.ds_test)
         print('part: %d, acc_train: %.3f, test accuracy: %.3f, time cost: %.3f sec' %
-              (ith_part, train_accuracy, test_accuracy, duration))
+              (ith_part, train_mse, test_mse, duration))
 
-    def do_eval(self, eval_correct, states_pl, rewards_pl, data_set):
-        true_count = 0
+    def do_eval(self, mse, states_pl, rewards_pl, data_set):
+        accum_mse = 0.
         batch_size = BATCH_SIZE
-        steps_per_epoch = data_set.num_examples // batch_size
-        num_examples = steps_per_epoch * batch_size
+        assert batch_size != 0
+        steps_per_epoch = math.ceil(data_set.num_examples / batch_size)
         for _ in range(steps_per_epoch):
             feed_dict = self.fill_feed_dict(data_set, states_pl, rewards_pl, batch_size)
-            true_count += self.sess.run(eval_correct, feed_dict=feed_dict)
-        precision = true_count / (num_examples or 1)
-        return precision
+            accum_mse += self.sess.run(mse, feed_dict=feed_dict)
+        avg_mse = accum_mse / (steps_per_epoch or 1)
+        return avg_mse
 
     def forge(self, row):
         board = row[:Board.BOARD_SIZE_SQ]

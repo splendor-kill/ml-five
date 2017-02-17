@@ -356,7 +356,8 @@ class RLPolicy(object):
             self.value_net_dirs[1] = dir_name
 
         latest_ver = max(self.value_net_dirs.keys())
-        value_net = ValueNet(os.path.join(RLPolicy.WORK_DIR, self.value_net_dirs[latest_ver]))
+        value_net = ValueNet(os.path.join(RLPolicy.WORK_DIR, self.value_net_dirs[latest_ver]),
+                             os.path.join(RLPolicy.WORK_DIR, RLPolicy.SL_SUMMARY_DIR))
         return value_net
 
     def find_dirs(self, root, pat):
@@ -580,7 +581,7 @@ class RLPolicy(object):
         counter = 0
         times = 0
         start_time = time.time()
-        while counter < 1500000:
+        while counter < 500000:
             times += 1
             counter += self.play_batch()
             if times % 20 == 0:
@@ -673,6 +674,6 @@ class RLPolicy(object):
 if __name__ == '__main__':
     rl = RLPolicy()
 #     rl.run()
-    rl.gen_dataset_for_train_value_net()
-#     rl.train_value_net()
+#     rl.gen_dataset_for_train_value_net()
+    rl.train_value_net()
     rl.release()
