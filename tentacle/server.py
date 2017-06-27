@@ -1,5 +1,4 @@
 import copy
-import queue
 import random
 import socket
 import struct
@@ -14,29 +13,41 @@ HOST = ''  # Symbolic name, meaning all available interfaces
 PORT = 10000  # Arbitrary non-privileged port
 
 
+try:
+    ConnectionResetError = ConnectionResetError
+except NameError:
+    class ConnectionResetError(Exception):
+        """
+        A HTTP connection was unexpectedly reset.
+        """
+
+
 def send_one_message(sock, data):
     length = len(data)
 #     print('send:', data)
     sock.sendall(struct.pack('!I', length))
     sock.sendall(data)
 
+
 def recv_one_message(sock):
     lengthbuf = recvall(sock, 4)
     length, = struct.unpack('!I', lengthbuf)
     return recvall(sock, length)
 
+
 def recvall(sock, count):
     buf = b''
     while count:
         newbuf = sock.recv(count)
-        if not newbuf: return None
+        if not newbuf:
+            return None
         buf += newbuf
         count -= len(newbuf)
     return buf
 
 
 def dispose_msg(msg, msg_queue):
-#     print('recv:', msg)
+    # print('recv:', msg)
 
     global board
     global s1
@@ -47,7 +58,8 @@ def dispose_msg(msg, msg_queue):
     seq = msg.split(' ')
     if seq[0] == 'START:':
         board_size = int(seq[1])
-        board = Board(board_size)
+        Board.set_board_size(board_size)
+        board = Board()
         if s1 is None:
             s1 = StrategyDNN()
         first_query = True
@@ -55,7 +67,7 @@ def dispose_msg(msg, msg_queue):
         ans = 'START: OK'
         if msg_queue is not None:
             msg_queue.put(('start',))
-        s1.absorb('?')
+        # s1.absorb('?')
         s1.on_episode_start()
     elif seq[0] == 'MOVE:':
         assert len(seq) >= 4, 'protocol inconsistent'
@@ -90,10 +102,11 @@ def dispose_msg(msg, msg_queue):
         x, y = s1.preferred_move(board)
         ans = 'HERE: %d %d' % (x, y)
     elif seq[0] == 'END:':
-#             s1.close()
+        # s1.close()
         ans = 'END: OK'
 
     return ans
+
 
 class ClientThread(Thread):
     def __init__(self, conn, msg_queue):

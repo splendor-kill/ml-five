@@ -1,7 +1,7 @@
 import gc
 import os
 
-import psutil
+# import psutil
 
 import numpy as np
 import tensorflow as tf
@@ -13,7 +13,7 @@ from tentacle.ds_loader import DatasetLoader
 
 class DCNN3(Pre):
     def __init__(self, is_train=True, is_revive=False, is_rl=False):
-        super().__init__(is_train, is_revive, is_rl)
+        super(DCNN3, self).__init__(is_train, is_revive, is_rl)
         self.loader_train = DatasetLoader(Pre.DATA_SET_TRAIN)
         self.loader_valid = DatasetLoader(Pre.DATA_SET_VALID)
         self.loader_test = DatasetLoader(Pre.DATA_SET_TEST)
@@ -32,13 +32,13 @@ class DCNN3(Pre):
 
         self.policy_net_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope="policy_net")
 
-        pg_loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(self.predictions, actions_pl))
+        pg_loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(logits=self.predictions, labels=actions_pl))
         reg_loss = tf.reduce_sum([tf.reduce_sum(tf.square(x)) for x in self.policy_net_vars])
-        self.loss = pg_loss  # + 0.001 * reg_loss
+        self.loss = pg_loss  + 0.001 * reg_loss
 
-        tf.scalar_summary("raw_policy_loss", pg_loss)
-        tf.scalar_summary("reg_policy_loss", reg_loss)
-        tf.scalar_summary("all_policy_loss", self.loss)
+#        tf.scalar_summary("raw_policy_loss", pg_loss)
+#        tf.scalar_summary("reg_policy_loss", reg_loss)
+#        tf.scalar_summary("all_policy_loss", self.loss)
 
         self.optimizer = tf.train.AdamOptimizer(0.0001)
         self.opt_op = self.optimizer.minimize(self.loss)
@@ -65,27 +65,26 @@ class DCNN3(Pre):
         b_21 = self.bias_variable([ch])
         W_22 = self.weight_variable([3, 3, ch, ch])
         b_22 = self.bias_variable([ch])
+        W_23 = self.weight_variable([1, 1, ch, 1024])
+        b_23 = self.bias_variable([1024])
 
-        h_conv1 = tf.nn.relu(tf.nn.conv2d(states_pl, W_1, [1, 1, 1, 1], padding='SAME') + b_1)
+        h_conv1 = tf.nn.relu(tf.nn.conv2d(states_pl, W_1, [1, 1, 1, 1], padding='VALID') + b_1)
         h_conv2 = tf.nn.relu(tf.nn.conv2d(h_conv1, W_2, [1, 1, 1, 1], padding='SAME') + b_2)
         h_conv21 = tf.nn.relu(tf.nn.conv2d(h_conv2, W_21, [1, 1, 1, 1], padding='SAME') + b_21)
         h_conv22 = tf.nn.relu(tf.nn.conv2d(h_conv21, W_22, [1, 1, 1, 1], padding='SAME') + b_22)
+        h_conv23 = tf.nn.relu(tf.nn.conv2d(h_conv22, W_23, [1, 1, 1, 1], padding='SAME') + b_23)
 
-        self.conv_out_dim = h_conv22.get_shape()[1:].num_elements()
-        conv_out = tf.reshape(h_conv22, [-1, self.conv_out_dim])
+        self.conv_out_dim = h_conv23.get_shape()[1:].num_elements()
+        conv_out = tf.reshape(h_conv23, [-1, self.conv_out_dim])
         return conv_out
 
     def create_policy_net(self, states_pl):
         conv = self.create_conv_net(states_pl)
         conv = tf.identity(conv, 'policy_net_conv')
-        num_hidden = 128
-        W_3 = self.weight_variable([self.conv_out_dim, num_hidden])
-        b_3 = self.bias_variable([num_hidden])
-        W_4 = self.weight_variable([num_hidden, Pre.NUM_ACTIONS])
-        b_4 = self.bias_variable([Pre.NUM_ACTIONS])
+        W_3 = self.weight_variable([self.conv_out_dim, Pre.NUM_ACTIONS])
+        b_3 = self.bias_variable([Pre.NUM_ACTIONS])
 
-        hidden = tf.nn.tanh(tf.matmul(conv, W_3) + b_3)
-        fc_out = tf.matmul(hidden, W_4) + b_4
+        fc_out = tf.matmul(conv, W_3) + b_3
         return fc_out
 
     def create_value_net(self, states_pl):
@@ -97,7 +96,7 @@ class DCNN3(Pre):
         W_4 = tf.Variable(tf.zeros([num_hidden, 1], tf.float32))
         b_4 = tf.Variable(tf.zeros([1], tf.float32))
 
-        hidden = tf.nn.tanh(tf.matmul(conv, W_3) + b_3)
+        hidden = tf.nn.relu(tf.matmul(conv, W_3) + b_3)
         fc_out = tf.matmul(hidden, W_4) + b_4
         return fc_out
 
@@ -114,9 +113,9 @@ class DCNN3(Pre):
         return image, win_rate
 
     def adapt(self, filename):
-        proc = psutil.Process(os.getpid())
+        # proc = psutil.Process(os.getpid())
         gc.collect()
-        mem0 = proc.memory_info().rss
+        # mem0 = proc.memory_info().rss
 
         if self.ds_train is not None and not self.loader_train.is_wane:
             self.ds_train = None
@@ -127,8 +126,8 @@ class DCNN3(Pre):
 
         gc.collect()
 
-        mem1 = proc.memory_info().rss
-        print('gc(M):', (mem1 - mem0) / 1024 ** 2)
+        # mem1 = proc.memory_info().rss
+        # print('gc(M):', (mem1 - mem0) / 1024 ** 2)
 
         h, w, c = self.get_input_shape()
 

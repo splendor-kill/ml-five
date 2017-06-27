@@ -8,8 +8,10 @@ import matplotlib.pyplot as plt
 import numpy as np
 from tentacle.board import Board
 from tentacle.dfs import Searcher
+from tentacle.dnn3 import DCNN3
 from tentacle.game import Game
 from tentacle.mcts import MonteCarlo
+from tentacle.mcts1 import MCTS1
 
 
 class Strategy(object):
@@ -479,3 +481,58 @@ class StrategyMC(Strategy, Auditor):
         with open(file, 'rb') as f:
             self.mc.net = pickle.load(f)
         print('load OK')
+
+
+class StrategyMCTS1(Strategy, Auditor):
+
+    def __init__(self):
+        super().__init__()
+        self.brain = DCNN3(False, True, False)
+        self.brain.run()
+        self.mcts = MCTS1(self._value_fn, self._policy_fn, self._rollout_fn)
+        self.last_state = None
+
+    def preferred_board(self, old, moves, context):
+        if not moves:
+            raise Exception('should be ended')
+
+        if self.last_state is not None:
+            oppo_action = np.where(old.stones != self.last_state.stones)[0][0]
+            self.mcts.update_with_move(oppo_action)
+
+        best_move = self.mcts.get_move(old)
+        v = old.stones
+        if v[best_move] == Board.STONE_EMPTY:
+            for m in moves:
+                if m.stones[best_move] != Board.STONE_EMPTY:
+                    self.last_state = m
+                    self.mcts.update_with_move(best_move)
+                    return m
+        raise Exception('impossible')
+
+    def _value_fn(self, board):
+        state, _ = self.get_input_values(board.stones)
+        v = self.brain.get_state_value(state)
+        return v
+
+    def _policy_fn(self, board):
+        _, _, legal_moves = Game.possible_moves(board)
+        state, _ = self.get_input_values(board.stones)
+        probs = self.brain.get_move_probs(state)
+        probs = probs[0, legal_moves]
+        return list(zip(legal_moves, probs))
+
+    def _rollout_fn(self, board, legal_moves):
+        state, _ = self.get_input_values(board.stones)
+        probs = self.brain.get_move_probs(state)
+        return probs
+
+    def get_input_values(self, board):
+        state, _ = self.brain.adapt_state(board)
+        legal = (board == Board.STONE_EMPTY)
+        return state, legal
+
+if __name__ == '__main__':
+    mcts = StrategyMCTS1()
+    board = Board()
+    mcts.preferred_board(board, None, None)

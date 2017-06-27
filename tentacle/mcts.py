@@ -30,7 +30,7 @@ class MonteCarlo(object):
 
         self.total_sim = 0
         self.observation = []
-        
+
 
     def select(self, board, moves, who, **kwargs):
         # Bail out early if there is no real choice to be made.
@@ -66,7 +66,7 @@ class MonteCarlo(object):
         state = board
         winner = Board.STONE_EMPTY
         for _ in range(1, self.max_moves + 1):
-            moves, player = Game.possible_moves(state)
+            moves, player, _ = Game.possible_moves(state)
             state_new, state_new_val = self.get_best(state, moves, player)
             visited_path.append((player, state, state_new, state_new_val))
             over, winner, _ = state_new.is_over(state)
@@ -108,13 +108,13 @@ class MonteCarlo(object):
         iv[-1] = 1 if who == Board.STONE_WHITE else 0  # turn to white move
         return iv
 
-    
+
     def swallow(self, who, st0, st1, **kwargs):
         self.observation.append((who, st0, st1))
-    
+
     def absorb(self, winner, **kwargs):
         self.total_sim += 1
-        
+
         ds = SupervisedDataSet(self.features_num, 2)
         for who, s0, s1 in self.observation:
             if who != Board.STONE_BLACK:
@@ -127,8 +127,8 @@ class MonteCarlo(object):
                 wins += 1
             ds.addSample(input_vec, (wins, plays))
         self.trainer.trainOnDataset(ds)
-    
+
     def void(self):
         self.observation = []
-    
-    
+
+

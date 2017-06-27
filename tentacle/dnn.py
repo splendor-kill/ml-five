@@ -1,12 +1,8 @@
-import collections
 import csv
 import gc
 import os
 import time
 import zipfile
-
-import psutil
-from scipy import ndimage
 
 import numpy as np
 import tensorflow as tf
@@ -39,20 +35,19 @@ class Pre(object):
     NUM_STEPS = 10000000
     DATASET_CAPACITY = 32 * 8000
 
-    WORK_DIR = '/home/splendor/fusor'
+    WORK_DIR = 'D:\\work\\gomoku\\fusor\\'
     BRAIN_DIR = os.path.join(WORK_DIR, 'brain')
     BRAIN_CHECKPOINT_FILE = os.path.join(BRAIN_DIR, 'model.ckpt')
     SUMMARY_DIR = os.path.join(WORK_DIR, 'summary')
     STAT_FILE = os.path.join(WORK_DIR, 'stat.npz')
     MID_VIS_FILE = os.path.join(WORK_DIR, 'mid_vis.npz')
-    DATA_SET_DIR = os.path.join(WORK_DIR, 'dataset_gomocup9')
+    DATA_SET_DIR = os.path.join(WORK_DIR, 'dataset_gomocup15')
     DATA_SET_FILE = os.path.join(DATA_SET_DIR, 'train.txt')
     DATA_SET_TRAIN = os.path.join(DATA_SET_DIR, 'train.txt')
     DATA_SET_VALID = os.path.join(DATA_SET_DIR, 'validation.txt')
     DATA_SET_TEST = os.path.join(DATA_SET_DIR, 'test.txt')
-    DATA_SET_ZIP_FILE = '/home/splendor/fusor/dataset.zip'
-    BRAIN_ZIP_FILE = '/home/splendor/fusor/brain.zip'
-
+    
+    
     def __init__(self, is_train=True, is_revive=False, is_rl=False):
         self.is_train = is_train
         self.is_revive = is_revive
@@ -71,6 +66,15 @@ class Pre(object):
         self.is_rl = is_rl
         self.starter_learning_rate = 0.001
         self.rl_global_step = 0
+
+        self.replay_memory_size = 10 * 1000
+        h, w, c = self.get_input_shape()
+        self.replay_memory0 = np.zeros([self.replay_memory_size, h * w * c], dtype=np.float32)
+        self.replay_memory1 = np.zeros([self.replay_memory_size, Pre.NUM_ACTIONS], dtype=np.float32)
+        self.replay_memory2 = np.zeros(self.replay_memory_size, dtype=np.float32)
+        self.replay_memory_write_cursor = 0
+        self.replay_memory_is_full = False
+
 
     def placeholder_inputs(self):
         h, w, c = self.get_input_shape()
@@ -157,31 +161,31 @@ class Pre(object):
         self.rewards_pl = tf.placeholder(tf.float32, shape=[None])
 
         # SARSA: alpha * [r + gamma * Q(s', a') - Q(s, a)] * grad
-        # Q: alpha * [r + gamma * max<a>Q(s', a) − Q(s, a)] * grad
+        # Q: alpha * [r + gamma * max<a>Q(s', a) - Q(s, a)] * grad
 
         value_net_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope="value_net")
-        delta = self.rewards_pl  # - self.value_outputs
+        delta = self.rewards_pl - self.value_outputs
         self.advantages = tf.reduce_mean(delta)
 
         learning_rate = tf.train.exponential_decay(self.starter_learning_rate, self.rl_global_step, 500, 0.96, staircase=True)
 
         self.policy_grads = self.optimizer.compute_gradients(self.loss, self.policy_net_vars)
-#         for i, (grad, var) in enumerate(self.policy_grads):
-#             if grad is not None:
-#                 self.policy_grads[i] = (-grad * self.advantages, var)
-#         self.policy_opt_op = tf.train.GradientDescentOptimizer(learning_rate).apply_gradients(self.policy_grads)
+        for i, (grad, var) in enumerate(self.policy_grads):
+            if grad is not None:
+                self.policy_grads[i] = (-grad * self.advantages, var)
+        self.policy_opt_op = tf.train.GradientDescentOptimizer(0.0001).apply_gradients(self.policy_grads)
 
         mean_square_loss = tf.reduce_mean(tf.squared_difference(self.rewards_pl, self.value_outputs))
         value_reg_loss = tf.reduce_sum([tf.reduce_sum(tf.square(x)) for x in value_net_vars])
-        self.value_loss = mean_square_loss  # + 0.001 * value_reg_loss
+        self.value_loss = mean_square_loss + 0.001 * value_reg_loss
 
-        self.value_grads = self.optimizer.compute_gradients(self.value_loss, value_net_vars)
-        grads = self.policy_grads  # + self.value_grads
-        for i, (grad, var) in enumerate(grads):
-            if grad is not None:
-                grads[i] = (-grad * self.advantages, var)
-#         self.value_opt_op = tf.train.GradientDescentOptimizer(0.0001).apply_gradients(self.value_grads)
-        self.train_op = tf.train.GradientDescentOptimizer(0.0001).apply_gradients(grads)
+#         self.value_grads = self.optimizer.compute_gradients(self.value_loss, value_net_vars)
+#         grads = self.policy_grads + self.value_grads
+#         for i, (grad, var) in enumerate(grads):
+#             if grad is not None:
+#                 grads[i] = (tf.clip_by_norm(grad, 5.0), var)
+        self.value_opt_op = self.optimizer.minimize(self.value_loss)
+#         self.train_op = tf.train.GradientDescentOptimizer(0.0001).apply_gradients(grads)
 
 #         for grad, var in self.value_grads:
 #             tf.histogram_summary(var.name, var)
@@ -199,13 +203,13 @@ class Pre(object):
             self.states_pl, self.actions_pl = self.placeholder_inputs()
             self.model(self.states_pl, self.actions_pl)
 
-            self.summary_op = tf.merge_all_summaries()
+            #self.summary_op = tf.merge_all_summaries()
 
             self.saver = tf.train.Saver(tf.trainable_variables())
 
             init = tf.initialize_all_variables()
 
-            self.summary_writer = tf.train.SummaryWriter(Pre.SUMMARY_DIR, tf.get_default_graph())
+    #        self.summary_writer = tf.train.SummaryWriter(Pre.SUMMARY_DIR, tf.get_default_graph())
 
             self.sess = tf.Session(graph=tf.get_default_graph())
             self.sess.run(init)
@@ -243,9 +247,16 @@ class Pre(object):
         h, w, c = self.get_input_shape()
         feed_dict = {
             self.states_pl: state.reshape(1, -1).reshape((-1, h, w, c)),
-#             self.actions_pl: np.zeros(1)
         }
         return self.sess.run(self.predict_probs, feed_dict=feed_dict)
+
+    def get_state_value(self, state):
+        h, w, c = self.get_input_shape()
+        feed_dict = {
+            self.states_pl: state.reshape(1, -1).reshape((-1, h, w, c)),
+        }
+        return self.sess.run(self.value_outputs, feed_dict=feed_dict)
+
 
     def train(self, ith_part):
         Pre.NUM_STEPS = self.ds_train.num_examples // Pre.BATCH_SIZE
@@ -259,10 +270,10 @@ class Pre(object):
             self.loss_window.extend(loss)
             self.gstep += 1
             step += 1
-            if (step % 1000 == 0):
-                summary_str = self.sess.run(self.summary_op, feed_dict=feed_dict)
-                self.summary_writer.add_summary(summary_str, self.gstep)
-                self.summary_writer.flush()
+      #      if (step % 1000 == 0):
+      #          summary_str = self.sess.run(self.summary_op, feed_dict=feed_dict)
+      #          self.summary_writer.add_summary(summary_str, self.gstep)
+      #          self.summary_writer.flush()
 
             if step + 1 == Pre.NUM_STEPS:
                 self.saver.save(self.sess, Pre.BRAIN_CHECKPOINT_FILE, global_step=self.gstep)
@@ -339,17 +350,17 @@ class Pre(object):
 
 
     def load_dataset(self, filename):
-        proc = psutil.Process(os.getpid())
+        # proc = psutil.Process(os.getpid())
         gc.collect()
-        mem0 = proc.memory_info().rss
+        # mem0 = proc.memory_info().rss
 
         del self.ds_train
         del self.ds_valid
         del self.ds_test
         gc.collect()
 
-        mem1 = proc.memory_info().rss
-        print('gc(M):', (mem1 - mem0) / 1024 ** 2)
+        # mem1 = proc.memory_info().rss
+        # print('gc(M):', (mem1 - mem0) / 1024 ** 2)
 
         content = []
         with open(filename) as csvfile:
@@ -378,10 +389,6 @@ class Pre(object):
         print('unique:', unique_a.shape)
         return unique_a
 
-
-    def _neighbor_count(self, board, who):
-        footprint = np.array([[1, 1, 1], [1, 0, 1], [1, 1, 1]])
-        return ndimage.generic_filter(board, lambda r: np.count_nonzero(r == who), footprint=footprint, mode='constant')
 
     def adapt_state(self, board):
         black = (board == Board.STONE_BLACK).astype(float)
@@ -439,25 +446,6 @@ class Pre(object):
 #                 if epoch >= 1:
 #                     break
 
-    def deploy(self):
-        if os.path.exists(Pre.DATA_SET_DIR):
-            print('dataset dir exists')
-        else:
-            print('extract dataset...')
-            with open(Pre.DATA_SET_ZIP_FILE, 'rb') as fh:
-                z = zipfile.ZipFile(fh)
-                for name in z.namelist():
-                    z.extract(name, Pre.WORK_DIR)
-
-        if os.path.exists(Pre.BRAIN_DIR):
-            print('brain dir exists')
-        else:
-            print('extract brain...')
-            with open(Pre.BRAIN_ZIP_FILE, 'rb') as fh:
-                z = zipfile.ZipFile(fh)
-                for name in z.namelist():
-                    z.extract(name, Pre.WORK_DIR)
-
 
     def learning_through_play(self):
 #         for step in range(Pre.NUM_STEPS):
@@ -485,10 +473,12 @@ class Pre(object):
     def _absorb(self, winner, **kwargs):
         h, w, c = self.get_input_shape()
 
-        states = []
-        actions = []
-        rewards = []
-
+        gamma = 0.96
+        result_steps = len(self.observation)
+        assert result_steps > 0
+        corrected_reward_for_quick_finish = np.exp(-3 * 2 * result_steps / Pre.NUM_ACTIONS) + 0.95
+        decay_coeff = gamma ** (result_steps - 1)
+        result_of_this_game = 0
         for who, st0, st1 in self.observation:
             if who != kwargs['stand_for']:
                 continue
@@ -496,22 +486,32 @@ class Pre(object):
             reward = 0
             if winner != 0:
                 reward = 1 if who == winner else -1
+            result_of_this_game = reward
             state, _ = self.adapt_state(st0.stones)
-            state = state.reshape((-1, h, w, c))
-            states.append(state)
-            actions.append(action)
-            rewards.append(reward)
+            self.replay_memory0[self.replay_memory_write_cursor, :] = state
+            self.replay_memory1[self.replay_memory_write_cursor, :] = action
+            reward *= decay_coeff
+            self.replay_memory2[self.replay_memory_write_cursor] = reward * corrected_reward_for_quick_finish
+            decay_coeff /= gamma
+            self.replay_memory_write_cursor += 1
+            if self.replay_memory_write_cursor >= self.replay_memory_size:
+                self.replay_memory_is_full = True
+                self.replay_memory_write_cursor = 0
 
-        states = np.vstack(states)
-        actions = np.vstack(actions)
-        rewards = np.array(rewards)
-#         rewards[:-1] = 0.
-#         rewards = self.discount_episode_rewards(rewards)
+        if not self.replay_memory_is_full:
+            return
+
+        minibatch = 256
+        idx = np.random.choice(self.replay_memory0.shape[0], minibatch, replace=False)
+        states = self.replay_memory0[idx]
+        states = states.reshape((-1, h, w, c))
+        actions = self.replay_memory1[idx]
+        rewards = self.replay_memory2[idx]
 
         fd = {self.states_pl:states, self.actions_pl:actions, self.rewards_pl:rewards}  # [i][np.newaxis, ...]
-        _, pg_loss, value_loss = self.sess.run([self.train_op, self.loss, self.value_loss], feed_dict=fd)
+        _, _, pg_loss, value_loss = self.sess.run([self.policy_opt_op, self.value_opt_op, self.loss, self.value_loss], feed_dict=fd)
         print('reward: {:>2d}, winner: {:d}, stand for: {:d}, policy net loss: {:6.3f}, value net loss: {:7.3f}'
-              .format(rewards[-1], winner, kwargs['stand_for'], pg_loss, value_loss))
+              .format(result_of_this_game, winner, kwargs['stand_for'], pg_loss, value_loss))
         self.rl_global_step += 1
         self.stat.append((self.rl_global_step, rewards[-1], pg_loss, 1 if winner == kwargs['stand_for'] else 0))
 
@@ -547,6 +547,5 @@ class Pre(object):
 
 if __name__ == '__main__':
     pre = Pre(is_revive=False)
-    pre.deploy()
     pre.run()
 

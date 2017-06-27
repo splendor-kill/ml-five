@@ -25,7 +25,7 @@ class Game(object):
             self.q.put(('start',))
 
     def step(self):
-        moves, self.whose_turn = Game.possible_moves(self.board)
+        moves, self.whose_turn, _ = Game.possible_moves(self.board)
 
         strat = self.strat1 if self.whose_turn == self.strat1.stand_for else self.strat2
 #         print('who', strat.stand_for)
@@ -114,5 +114,5 @@ class Game(object):
             boards.append(b)
 
 #         print('possible moves[%d]' % len(boards))
-        return boards, who
+        return boards, who, loc[0]
 

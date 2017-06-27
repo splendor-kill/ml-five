@@ -4,24 +4,20 @@
 # matplotlib.use('Qt4Agg')
 import copy
 import datetime
-from queue import Queue
-import queue
 import random
 from threading import Thread
-import threading
-
-from IPython.utils.tests.test_wildcard import q
 
 import matplotlib.patches as patches
 import matplotlib.pyplot as plt
 import numpy as np
+from six.moves import queue
 from tentacle.board import Board
 from tentacle.game import Game
 from tentacle.server import net
 from tentacle.strategy import StrategyHuman, StrategyMC, StrategyNetBot
+from tentacle.strategy import StrategyMCTS1
 from tentacle.strategy import StrategyMinMax
 from tentacle.strategy import StrategyTD, StrategyRand
-from tentacle.strategy_ann import StrategyANN
 from tentacle.strategy_dnn import StrategyDNN
 
 
@@ -72,7 +68,7 @@ class Gui(object):
         self.game = None
         self.all_stones = []
         self.oppo_pool = []
-        self.msg_queue = Queue(maxsize=100)
+        self.msg_queue = queue.Queue(maxsize=100)
 
         self.timer = self.fig.canvas.new_timer(interval=50)
         self.timer.add_callback(self.on_update)
@@ -288,6 +284,7 @@ class Gui(object):
 #             s1 = StrategyMC()
 #             s1 = StrategyANN(feat, feat * 2)
             s1 = StrategyDNN()
+#             s1 = StrategyMCTS1()
             self.strategy_1 = s1
         else:
             s1 = self.strategy_1
@@ -526,7 +523,7 @@ class Gui(object):
         win1, win2, draw = 0, 0, 0
 
         n_lose = 0
-        iter_n = 10
+        iter_n = 100
         i = 0
         while True:
             print('iter:', i)
@@ -549,7 +546,7 @@ class Gui(object):
 #                 print('stronger, oppos:', len(self.oppo_pool))
 #             elif win1 < win2:
 #                 n_lose += 1
-# 
+#
 #             if n_lose >= 50:
 #                 break
 

@@ -6,14 +6,15 @@ from tentacle.dnn import Pre
 from tentacle.dnn2 import DCNN2
 from tentacle.dnn3 import DCNN3
 from tentacle.strategy import Strategy, Auditor
+from builtins import (super)
 
 
 class StrategyDNN(Strategy, Auditor):
     def __init__(self, is_train=False, is_revive=True, is_rl=False):
         super().__init__()
-        self.init_exp = 0.1  # initial exploration prob
-        self.final_exp = 0.003  # final exploration prob
-        self.anneal_steps = 9000  # N steps for annealing exploration
+        self.init_exp = 0.2  # initial exploration prob
+        self.final_exp = 0.001  # final exploration prob
+        self.anneal_steps = 90 * 1000  # N steps for annealing exploration
         self.absorb_progress = 0
         self.exploration = self.init_exp
 
@@ -108,7 +109,7 @@ class StrategyDNN(Strategy, Auditor):
         self.annealExploration()
 
     def annealExploration(self):
-#         ratio = max((self.anneal_steps - self.absorb_progress) / float(self.anneal_steps), 0)
-#         self.exploration = (self.init_exp - self.final_exp) * ratio + self.final_exp
-        self.exploration = 0.03
+        ratio = max((self.anneal_steps - self.absorb_progress) / float(self.anneal_steps), 0)
+        self.exploration = (self.init_exp - self.final_exp) * ratio + self.final_exp
+#         self.exploration = 0.03
 
