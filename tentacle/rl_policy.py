@@ -257,7 +257,7 @@ class Transformer(object):
         policy_net_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope="policy_net")
 
 #         print('pred shape:', predictions.get_shape(), 'actions_pl:', actions_pl.get_shape())
-        pg_loss = tf.nn.softmax_cross_entropy_with_logits(predictions, actions_pl)
+        pg_loss = tf.nn.softmax_cross_entropy_with_logits(labels=actions_pl, logits=predictions)
 
 #         pg_loss = -actions_pl * tf.nn.log_softmax(predictions)
 #         print('pg_loss shape:', pg_loss.get_shape())
@@ -313,7 +313,7 @@ class RLPolicy(object):
     NUM_ITERS = 10000
     NEXT_OPPO_ITERS = 500
 
-    WORK_DIR = '/home/splendor/fusor'
+    WORK_DIR = '/home/splendor/wd2t/fusor'
     SL_POLICY_DIR = os.path.join(WORK_DIR, 'brain')
     SL_SUMMARY_DIR = os.path.join(WORK_DIR, 'summary')
     RL_POLICY_DIR_PREFIX = 'brain_rl_'

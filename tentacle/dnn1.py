@@ -58,9 +58,9 @@ class DCNN1(Pre):
         predictions = tf.matmul(self.hidden, W_4) + b_4
 
         self.sparse_labels = True
-        cross_entropy = tf.nn.sparse_softmax_cross_entropy_with_logits(predictions, actions_pl)
+        cross_entropy = tf.nn.sparse_softmax_cross_entropy_with_logits(labels=actions_pl, logits=predictions)
         self.loss = tf.reduce_mean(cross_entropy)
-        tf.scalar_summary("loss", self.loss)
+        tf.summary.scalar("loss", self.loss)
         self.optimizer = tf.train.GradientDescentOptimizer(Pre.LEARNING_RATE)
         self.opt_op = self.optimizer.minimize(self.loss)
 

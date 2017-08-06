@@ -69,16 +69,16 @@ class DCNN2(Pre):
         self.hidden = tf.matmul(h_conv_out, W_3) + b_3
         self.predictions = tf.matmul(self.hidden, W_4) + b_4
 
-        self.cross_entropy = tf.nn.softmax_cross_entropy_with_logits(self.predictions, actions_pl)
+        self.cross_entropy = tf.nn.softmax_cross_entropy_with_logits(labels=actions_pl, logits=self.predictions)
 #         self.loss = tf.reduce_mean(self.cross_entropy)
-        self.loss = tf.reduce_mean(-tf.reduce_sum(tf.nn.log_softmax(self.predictions) * actions_pl, reduction_indices=1))
+        self.loss = tf.reduce_mean(-tf.reduce_sum(tf.nn.log_softmax(self.predictions) * actions_pl, axis=1))
         print("states_pl shape:", states_pl.get_shape())
         print("actions_pl shape:", actions_pl.get_shape())
         print("predictions shape:", self.predictions.get_shape())
         print("cross_entropy shape:", self.cross_entropy.get_shape())
         print("loss shape:", self.loss.get_shape())
 
-        tf.scalar_summary("loss", self.loss)
+        tf.summary.scalar("loss", self.loss)
         self.optimizer = tf.train.AdamOptimizer()
         self.opt_op = self.optimizer.minimize(self.loss)
 

@@ -35,9 +35,9 @@ class Pre(object):
     BATCH_SIZE = 32
     LEARNING_RATE = 0.001
     NUM_STEPS = 10000000
-    DATASET_CAPACITY = 32 * 8000
+    DATASET_CAPACITY = 32 * 4000
 
-    WORK_DIR = '/home/splendor/fusor'
+    WORK_DIR = '/home/splendor/wd2t/fusor'
     BRAIN_DIR = os.path.join(WORK_DIR, 'brain')
     BRAIN_CHECKPOINT_FILE = os.path.join(BRAIN_DIR, 'model.ckpt')
     SUMMARY_DIR = os.path.join(WORK_DIR, 'summary')
@@ -68,7 +68,7 @@ class Pre(object):
         self.starter_learning_rate = 0.001
         self.rl_global_step = 0
 
-        self.replay_memory_size = 1
+        self.replay_memory_size = 1000000
         h, w, c = self.get_input_shape()
         self.replay_memory0 = np.zeros([self.replay_memory_size, h * w * c], dtype=np.float32)
         self.replay_memory1 = np.zeros([self.replay_memory_size, Pre.NUM_ACTIONS], dtype=np.float32)
@@ -143,9 +143,9 @@ class Pre(object):
         predictions = tf.matmul(self.hidden, W_4) + b_4
 
         self.sparse_labels = True
-        self.cross_entropy = tf.nn.sparse_softmax_cross_entropy_with_logits(predictions, actions_pl)
+        self.cross_entropy = tf.nn.sparse_softmax_cross_entropy_with_logits(labels=actions_pl, logits=predictions)
         self.loss = tf.reduce_mean(self.cross_entropy)
-        tf.scalar_summary("loss", self.loss)
+        tf.summary.scalar("loss", self.loss)
         self.optimizer = tf.train.AdadeltaOptimizer(Pre.LEARNING_RATE)
         self.opt_op = self.optimizer.minimize(self.loss)
 
@@ -193,24 +193,23 @@ class Pre(object):
 #             if grad is not None:
 #                 tf.histogram_summary(var.name + '/its_grads', grad)
 
-        tf.scalar_summary("advantages", self.advantages)
-        tf.scalar_summary("raw_value_loss", mean_square_loss)
-        tf.scalar_summary("reg_value_loss", value_reg_loss)
-        tf.scalar_summary("all_value_loss", self.value_loss)
+        tf.summary.scalar("advantages", self.advantages)
+        tf.summary.scalar("raw_value_loss", mean_square_loss)
+        tf.summary.scalar("reg_value_loss", value_reg_loss)
+        tf.summary.scalar("all_value_loss", self.value_loss)
 
     def prepare(self):
-
         with tf.Graph().as_default():
             self.states_pl, self.actions_pl = self.placeholder_inputs()
             self.model(self.states_pl, self.actions_pl)
 
-            self.summary_op = tf.merge_all_summaries()
+            self.summary_op = tf.summary.merge_all()
 
-            self.saver = tf.train.Saver(tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope="policy_net"))#tf.trainable_variables())
+            self.saver = tf.train.Saver(tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope="policy_net"))  # tf.trainable_variables())
 
-            init = tf.initialize_all_variables()
+            init = tf.global_variables_initializer()
 
-            self.summary_writer = tf.train.SummaryWriter(Pre.SUMMARY_DIR, tf.get_default_graph())
+            self.summary_writer = tf.summary.FileWriter(Pre.SUMMARY_DIR, tf.get_default_graph())
 
             self.sess = tf.Session(graph=tf.get_default_graph())
             self.sess.run(init)
