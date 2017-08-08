@@ -2,6 +2,7 @@ import numpy as np
 from tentacle.board import Board
 from tentacle.dnn3 import DCNN3
 from tentacle.strategy import Strategy, Auditor
+from tentacle.utils import attemper
 from builtins import (super)
 
 
@@ -13,6 +14,8 @@ class StrategyDNN(Strategy, Auditor):
         self.anneal_steps = 90 * 1000  # N steps for annealing exploration
         self.absorb_progress = 0
         self.exploration = self.init_exp
+        self.temperature = 0.2
+        self.win_ratio = 1.
 
         self.brain = DCNN3(is_train, is_revive, is_rl)
         self.brain.run()
@@ -36,8 +39,17 @@ class StrategyDNN(Strategy, Auditor):
         state, legal = self.get_input_values(v)
         probs = self.brain.get_move_probs(state)
 
-        if np.random.rand() < (self.exploration if self.brain.is_rl else self.final_exp):
-            rand_loc = np.random.choice(np.where(v == Board.STONE_EMPTY)[0], 1)[0]
+#         if np.random.rand() < (self.exploration if self.brain.is_rl else self.final_exp):
+        if self.brain.is_rl:
+            if self.win_ratio is not None:
+                if self.win_ratio > 1.25:
+                    self.temperature += 0.002
+                elif self.win_ratio < 0.8:
+                    self.temperature -= 0.002
+            self.temperature = min(max(0.01, self.temperature), 100)
+            probs = attemper(probs[0], self.temperature, legal)
+            rand_loc = np.random.choice(Board.BOARD_SIZE_SQ, 1, p=probs)
+#             rand_loc = np.random.choice(np.where(v == Board.STONE_EMPTY)[0], 1)[0]
             loc = np.unravel_index(rand_loc, (Board.BOARD_SIZE, Board.BOARD_SIZE))
 #             print('explore at:', loc)
             return loc
@@ -95,8 +107,8 @@ class StrategyDNN(Strategy, Auditor):
         self.brain.void()
 
     def swallow(self, who, st0, st1, **kwargs):
-        if who != self.stand_for:
-            return
+#         if who != self.stand_for:
+#             return
         self.brain.swallow(who, st0, st1, **kwargs)
 
     def absorb(self, winner, **kwargs):

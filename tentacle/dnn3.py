@@ -34,11 +34,11 @@ class DCNN3(Pre):
 
         self.policy_net_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope="policy_net")
 
-        pg_loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(labels=actions_pl, logits=self.predictions))
+        sl_pg_loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(labels=actions_pl, logits=self.predictions))
         reg_loss = tf.reduce_sum([tf.reduce_sum(tf.square(x)) for x in self.policy_net_vars])
-        self.loss = pg_loss + 0.001 * reg_loss
+        self.loss = sl_pg_loss + 0.001 * reg_loss
 
-        tf.summary.scalar("raw_policy_loss", pg_loss)
+        tf.summary.scalar("raw_policy_loss", sl_pg_loss)
         tf.summary.scalar("reg_policy_loss", reg_loss)
         tf.summary.scalar("all_policy_loss", self.loss)
 
@@ -79,33 +79,39 @@ class DCNN3(Pre):
         b_7 = self.bias_variable([N])
         W_8 = self.weight_variable([1, 1, N, O])
         b_8 = self.bias_variable([O])
-#         O1 = tf.Variable(tf.zeros([ch1]))  # offset
-#         S1 = tf.Variable(tf.ones([ch1]))  # scale
-#         O2 = tf.Variable(tf.zeros([ch]))
-#         S2 = tf.Variable(tf.ones([ch]))
-#         O3 = tf.Variable(tf.zeros([ch]))
-#         S3 = tf.Variable(tf.ones([ch]))
-#         O4 = tf.Variable(tf.zeros([ch]))
-#         S4 = tf.Variable(tf.ones([ch]))
-#         O5 = tf.Variable(tf.zeros([ch]))
-#         S5 = tf.Variable(tf.ones([ch]))
+        O1 = tf.Variable(tf.zeros([H]))  # offset
+        S1 = tf.Variable(tf.ones([H]))  # scale
+        O2 = tf.Variable(tf.zeros([I]))
+        S2 = tf.Variable(tf.ones([I]))
+        O3 = tf.Variable(tf.zeros([J]))
+        S3 = tf.Variable(tf.ones([J]))
+        O4 = tf.Variable(tf.zeros([K]))
+        S4 = tf.Variable(tf.ones([K]))
+        O5 = tf.Variable(tf.zeros([L]))
+        S5 = tf.Variable(tf.ones([L]))
+        O6 = tf.Variable(tf.zeros([M]))
+        S6 = tf.Variable(tf.ones([M]))
+        O7 = tf.Variable(tf.zeros([N]))
+        S7 = tf.Variable(tf.ones([N]))
+        O8 = tf.Variable(tf.zeros([O]))
+        S8 = tf.Variable(tf.ones([O]))
 
         h_conv1 = tf.nn.conv2d(states_pl, W_1, [1, 1, 1, 1], padding='SAME') + b_1
-        h_conv1 = tf.nn.relu(h_conv1)  # self.bn_conv(h_conv1, O1, S1))
+        h_conv1 = tf.nn.elu(self.bn_conv(h_conv1, O1, S1))
         h_conv2 = tf.nn.conv2d(h_conv1, W_2, [1, 1, 1, 1], padding='SAME') + b_2
-        h_conv2 = tf.nn.relu(h_conv2)  # self.bn_conv(h_conv2, O2, S2))
+        h_conv2 = tf.nn.elu(self.bn_conv(h_conv2, O2, S2))
         h_conv3 = tf.nn.conv2d(h_conv2, W_3, [1, 1, 1, 1], padding='SAME') + b_3
-        h_conv3 = tf.nn.relu(h_conv3)
+        h_conv3 = tf.nn.elu(self.bn_conv(h_conv3, O3, S3))
         h_conv4 = tf.nn.conv2d(h_conv3, W_4, [1, 1, 1, 1], padding='SAME') + b_4
-        h_conv4 = tf.nn.relu(h_conv4)
+        h_conv4 = tf.nn.elu(self.bn_conv(h_conv4, O4, S4))
         h_conv5 = tf.nn.conv2d(h_conv4, W_5, [1, 1, 1, 1], padding='SAME') + b_5
-        h_conv5 = tf.nn.relu(h_conv5)
+        h_conv5 = tf.nn.elu(self.bn_conv(h_conv5, O5, S5))
         h_conv6 = tf.nn.conv2d(h_conv5, W_6, [1, 1, 1, 1], padding='SAME') + b_6
-        h_conv6 = tf.nn.relu(h_conv6)
+        h_conv6 = tf.nn.elu(self.bn_conv(h_conv6, O6, S6))
         h_conv7 = tf.nn.conv2d(h_conv6, W_7, [1, 1, 1, 1], padding='SAME') + b_7
-        h_conv7 = tf.nn.relu(h_conv7)
+        h_conv7 = tf.nn.elu(self.bn_conv(h_conv7, O7, S7))
         h_conv8 = tf.nn.conv2d(h_conv7, W_8, [1, 1, 1, 1], padding='SAME') + b_8
-        h_conv8 = tf.nn.relu(h_conv8)
+        h_conv8 = tf.nn.elu(self.bn_conv(h_conv8, O8, S8))
 
         conv_out_dim = h_conv8.get_shape()[1:].num_elements()
         conv_out = tf.reshape(h_conv8, [-1, conv_out_dim])
@@ -132,10 +138,10 @@ class DCNN3(Pre):
         conv = tf.identity(conv, 'value_net_conv')
 #         num_hidden = 128
 #         conv_out_dim = conv.get_shape()[1]
-#         W_3 = tf.Variable(tf.zeros([conv_out_dim, num_hidden], tf.float32))
-#         b_3 = tf.Variable(tf.zeros([num_hidden], tf.float32))
-        W_4 = tf.Variable(tf.zeros([conv_out_dim, 1], tf.float32))
-        b_4 = tf.Variable(tf.zeros([1], tf.float32))
+#         W_3 = self.weight_variable([conv_out_dim, num_hidden])
+#         b_3 = self.bias_variable([num_hidden])
+        W_4 = self.weight_variable([conv_out_dim, 1])
+        b_4 = self.bias_variable([1])
 
 #         hidden = tf.nn.relu(tf.matmul(conv, W_3) + b_3)
         fc_out = tf.matmul(conv, W_4) + b_4

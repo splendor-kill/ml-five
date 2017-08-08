@@ -34,10 +34,10 @@ class Board(object):
             b = Board()
             m = b.stones
             most = 2  # m.size // 2
-            white = np.random.randint(1, most)
+            white = np.random.randint(most)
             m[0:white] = Board.STONE_WHITE
             m[white:white * 2] = Board.STONE_BLACK
-            m[white * 2] = np.random.randint(1)
+            m[white * 2] = np.random.randint(2)
 
             np.random.shuffle(m)
 

@@ -514,7 +514,7 @@ class Gui(object):
         while True:
             print('iter:', i)
 
-            for _ in range(1000):
+            for _ in range(500):
                 s1.stand_for = random.choice([Board.STONE_BLACK, Board.STONE_WHITE])
                 s2.stand_for = Board.oppo(s1.stand_for)
 
@@ -523,6 +523,8 @@ class Gui(object):
                 win1 += 1 if g.winner == s1.stand_for else 0
                 win2 += 1 if g.winner == s2.stand_for else 0
                 draw += 1 if g.winner == Board.STONE_EMPTY else 0
+#                 print('winner: {:d}, stand for: {:d}'.format(g.winner, s1.stand_for))
+                s1.win_ratio = win1 / win2 if win2 != 0 else 1.
 
 #             if win1 > win2:
 #                 s1_c = s1.mind_clone()
@@ -541,7 +543,7 @@ class Gui(object):
                 win1_r = win1 / total
                 win2_r = win2 / total
                 draw_r = draw / total
-                print("iter:%d, win: %.3f, loss: %.3f, tie: %.3f" % (i, win1_r, win2_r, draw_r))
+                print("iter:%d, win: %.3f, loss: %.3f, tie: %.3f, t: %.3f" % (i, win1_r, win2_r, draw_r, s1.temperature))
                 stat.append([win1_r, win2_r, draw_r])
 
             i += 1
@@ -551,7 +553,7 @@ class Gui(object):
 
         stat = np.array(stat)
         print('stat. shape:', stat.shape)
-        np.savez('/home/splendor/fusor/stat.npz', stat=np.array(stat))
+        np.savez('/home/splendor/wd2t/fusor/stat.npz', stat=np.array(stat))
         self.strategy_1 = self.strategy_2 = s1
 
     def on_update(self):
