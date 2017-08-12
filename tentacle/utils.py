@@ -37,6 +37,17 @@ class ReplayMemory(object):
     def is_big_enough(self, size):
         return len(self.indexes) >= size
 
+    def clear(self):
+        self.indexes.clear()
+        self.dat.clear()
+
+    def dump(self, file):
+        l = []
+        for idx in self.indexes:
+            l.append(self.dat[idx])
+        a = np.array(l)
+        np.savez(file, a)
+
 
 def attemper(distribution, temperature, legal=None):
     '''

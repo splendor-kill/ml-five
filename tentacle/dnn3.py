@@ -28,14 +28,19 @@ class DCNN3(Pre):
     def model(self, states_pl, actions_pl):
         with tf.variable_scope("policy_net"):
             conv, conv_out_dim = self.create_conv_net(states_pl)
-            self.predictions = self.create_policy_net(conv, conv_out_dim, states_pl)
+            raw_predictions = self.create_policy_net(conv, conv_out_dim, states_pl)
+            legal_filter = tf.reshape(tf.slice(states_pl, [0, 0, 0, 2], [-1, -1, -1, 1]), [-1, Pre.NUM_ACTIONS])
+            self.predictions = raw_predictions * legal_filter
+
         with tf.variable_scope("value_net"):
             self.value_outputs = self.create_value_net(conv, conv_out_dim, states_pl)
 
         self.policy_net_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope="policy_net")
 
         sl_pg_loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(labels=actions_pl, logits=self.predictions))
-        reg_loss = tf.reduce_sum([tf.reduce_sum(tf.square(x)) for x in self.policy_net_vars])
+
+#         reg_loss = tf.reduce_sum([tf.reduce_sum(tf.square(x)) for x in self.policy_net_vars])
+        reg_loss = tf.reduce_sum(tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES))
         self.loss = sl_pg_loss + 0.001 * reg_loss
 
         tf.summary.scalar("raw_policy_loss", sl_pg_loss)
@@ -62,77 +67,49 @@ class DCNN3(Pre):
         return tf.nn.batch_normalization(conv, mean, variance, offset, scale, 1e-5)
 
     def create_conv_net(self, states_pl):
-        H, I, J, K, L, M, N, O = 128, 64, 32, 16, 8, 4, 2, 1
-        W_1 = self.weight_variable([3, 3, Pre.NUM_CHANNELS, H])
-        b_1 = self.bias_variable([H])
-        W_2 = self.weight_variable([3, 3, H, I])
-        b_2 = self.bias_variable([I])
-        W_3 = self.weight_variable([3, 3, I, J])
-        b_3 = self.bias_variable([J])
-        W_4 = self.weight_variable([3, 3, J, K])
-        b_4 = self.bias_variable([K])
-        W_5 = self.weight_variable([3, 3, K, L])
-        b_5 = self.bias_variable([L])
-        W_6 = self.weight_variable([3, 3, L, M])
-        b_6 = self.bias_variable([M])
-        W_7 = self.weight_variable([3, 3, M, N])
-        b_7 = self.bias_variable([N])
-        W_8 = self.weight_variable([1, 1, N, O])
-        b_8 = self.bias_variable([O])
-        O1 = tf.Variable(tf.zeros([H]))  # offset
-        S1 = tf.Variable(tf.ones([H]))  # scale
-        O2 = tf.Variable(tf.zeros([I]))
-        S2 = tf.Variable(tf.ones([I]))
-        O3 = tf.Variable(tf.zeros([J]))
-        S3 = tf.Variable(tf.ones([J]))
-        O4 = tf.Variable(tf.zeros([K]))
-        S4 = tf.Variable(tf.ones([K]))
-        O5 = tf.Variable(tf.zeros([L]))
-        S5 = tf.Variable(tf.ones([L]))
-        O6 = tf.Variable(tf.zeros([M]))
-        S6 = tf.Variable(tf.ones([M]))
-        O7 = tf.Variable(tf.zeros([N]))
-        S7 = tf.Variable(tf.ones([N]))
-        O8 = tf.Variable(tf.zeros([O]))
-        S8 = tf.Variable(tf.ones([O]))
 
-        h_conv1 = tf.nn.conv2d(states_pl, W_1, [1, 1, 1, 1], padding='SAME') + b_1
-        h_conv1 = tf.nn.elu(self.bn_conv(h_conv1, O1, S1))
-        h_conv2 = tf.nn.conv2d(h_conv1, W_2, [1, 1, 1, 1], padding='SAME') + b_2
-        h_conv2 = tf.nn.elu(self.bn_conv(h_conv2, O2, S2))
-        h_conv3 = tf.nn.conv2d(h_conv2, W_3, [1, 1, 1, 1], padding='SAME') + b_3
-        h_conv3 = tf.nn.elu(self.bn_conv(h_conv3, O3, S3))
-        h_conv4 = tf.nn.conv2d(h_conv3, W_4, [1, 1, 1, 1], padding='SAME') + b_4
-        h_conv4 = tf.nn.elu(self.bn_conv(h_conv4, O4, S4))
-        h_conv5 = tf.nn.conv2d(h_conv4, W_5, [1, 1, 1, 1], padding='SAME') + b_5
-        h_conv5 = tf.nn.elu(self.bn_conv(h_conv5, O5, S5))
-        h_conv6 = tf.nn.conv2d(h_conv5, W_6, [1, 1, 1, 1], padding='SAME') + b_6
-        h_conv6 = tf.nn.elu(self.bn_conv(h_conv6, O6, S6))
-        h_conv7 = tf.nn.conv2d(h_conv6, W_7, [1, 1, 1, 1], padding='SAME') + b_7
-        h_conv7 = tf.nn.elu(self.bn_conv(h_conv7, O7, S7))
-        h_conv8 = tf.nn.conv2d(h_conv7, W_8, [1, 1, 1, 1], padding='SAME') + b_8
-        h_conv8 = tf.nn.elu(self.bn_conv(h_conv8, O8, S8))
+        inputs = states_pl
+        for _ in range(6):
+            conv = tf.layers.conv2d(inputs=inputs,
+                                    filters=32,
+                                    kernel_size=[3, 3],
+                                    padding="same",
+                                    activation=tf.nn.relu,
+                                    kernel_regularizer=tf.nn.l2_loss
+                                    )
+            inputs = conv
 
-        conv_out_dim = h_conv8.get_shape()[1:].num_elements()
-        conv_out = tf.reshape(h_conv8, [-1, conv_out_dim])
+        conv_7 = tf.layers.conv2d(inputs=inputs,
+                                filters=32,
+                                kernel_size=[1, 1],
+                                padding="same",
+                                activation=tf.nn.relu,
+                                kernel_regularizer=tf.nn.l2_loss)
+        conv_8 = tf.layers.conv2d(inputs=conv_7,
+                                filters=32,
+                                kernel_size=[3, 3],
+                                padding="same",
+                                activation=tf.nn.relu,
+                                kernel_regularizer=tf.nn.l2_loss)
+        conv_9 = tf.layers.conv2d(inputs=conv_8,
+                                filters=256,
+                                kernel_size=[1, 1],
+                                padding="same",
+                                activation=tf.nn.relu,
+                                kernel_regularizer=tf.nn.l2_loss)
+
+        conv_out_dim = conv_9.get_shape()[1:].num_elements()
+        conv_out = tf.reshape(conv_9, [-1, conv_out_dim])
+
         return conv_out, conv_out_dim
 
     def create_policy_net(self, conv, conv_out_dim, states_pl):
         conv = tf.identity(conv, 'policy_net_conv')
-
-#         num_hidden = 128
-#         W_3 = self.weight_variable([conv_out_dim, num_hidden])
-#         b_3 = self.bias_variable([num_hidden])
-#         W_4 = self.weight_variable([num_hidden, Pre.NUM_ACTIONS])
-#         b_4 = self.bias_variable([Pre.NUM_ACTIONS])
-#
-#         O6 = tf.Variable(tf.zeros([num_hidden]))
-#         S6 = tf.Variable(tf.ones([num_hidden]))
-#
-#         hidden = tf.matmul(conv, W_3) + b_3
-#         hidden = tf.nn.relu(self.bn_conv(hidden, O6, S6, convolutional=False))
-#         fc_out = tf.matmul(hidden, W_4) + b_4
-        return conv
+        dense = tf.layers.dense(inputs=conv,
+                                units=Pre.NUM_ACTIONS,
+                                activation=tf.nn.relu,
+                                kernel_regularizer=tf.nn.l2_loss)
+        return dense
 
     def create_value_net(self, conv, conv_out_dim, states_pl):
         conv = tf.identity(conv, 'value_net_conv')

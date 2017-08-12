@@ -499,6 +499,7 @@ class Gui(object):
         plt.title('press F3 start')
 
     def reinforce(self):
+        STAT_FILE = '/home/splendor/wd2t/fusor/stat.npz'
         if len(self.oppo_pool) == 0:
             self.oppo_pool.append(StrategyDNN(is_train=False, is_revive=True, is_rl=False))
 
@@ -509,12 +510,14 @@ class Gui(object):
         win1, win2, draw = 0, 0, 0
 
         # n_lose = 0
-        iter_n = 100
+        iter_n = 200
         i = 0
         while True:
             print('iter:', i)
 
-            for _ in range(500):
+            step_counter, explo_counter = 0, 0
+            episodes = 500
+            for _ in range(episodes):
                 s1.stand_for = random.choice([Board.STONE_BLACK, Board.STONE_WHITE])
                 s2.stand_for = Board.oppo(s1.stand_for)
 
@@ -525,6 +528,8 @@ class Gui(object):
                 draw += 1 if g.winner == Board.STONE_EMPTY else 0
 #                 print('winner: {:d}, stand for: {:d}'.format(g.winner, s1.stand_for))
                 s1.win_ratio = win1 / win2 if win2 != 0 else 1.
+                step_counter += g.step_counter
+                explo_counter += g.exploration_counter
 
 #             if win1 > win2:
 #                 s1_c = s1.mind_clone()
@@ -545,15 +550,17 @@ class Gui(object):
                 draw_r = draw / total
                 print("iter:%d, win: %.3f, loss: %.3f, tie: %.3f, t: %.3f" % (i, win1_r, win2_r, draw_r, s1.temperature))
                 stat.append([win1_r, win2_r, draw_r])
+                print('avg. steps[%f], avg. explos[%f]' % (step_counter / episodes, explo_counter / episodes))
+
+            if i % 10 == 0 or i + 1 == iter_n:
+                np.savez(STAT_FILE, stat=np.array(stat))
 
             i += 1
 
             if i > iter_n:
                 break
 
-        stat = np.array(stat)
-        print('stat. shape:', stat.shape)
-        np.savez('/home/splendor/wd2t/fusor/stat.npz', stat=np.array(stat))
+        print('rl done. you can try it.')
         self.strategy_1 = self.strategy_2 = s1
 
     def on_update(self):

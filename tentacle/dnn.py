@@ -37,6 +37,7 @@ class Pre(object):
     LEARNING_RATE = 0.001
     NUM_STEPS = 10000000
     DATASET_CAPACITY = 32 * 4000
+    REPLAY_MEMORY_CAPACITY = 1000
 
     WORK_DIR = '/home/splendor/wd2t/fusor'
     BRAIN_DIR = os.path.join(WORK_DIR, 'brain')
@@ -49,6 +50,7 @@ class Pre(object):
     DATA_SET_TRAIN = os.path.join(DATA_SET_DIR, 'train.txt')
     DATA_SET_VALID = os.path.join(DATA_SET_DIR, 'validation.txt')
     DATA_SET_TEST = os.path.join(DATA_SET_DIR, 'test.txt')
+    REPLAY_MEMORY_DIR = os.path.join(WORK_DIR, 'replay')
 
     def __init__(self, is_train=True, is_revive=False, is_rl=False):
         self.is_train = is_train
@@ -68,7 +70,7 @@ class Pre(object):
         self.is_rl = is_rl
         self.starter_learning_rate = 0.001
         self.rl_global_step = 0
-        self.replay_memory_games = ReplayMemory(size=10000)
+        self.replay_memory_games = ReplayMemory(size=Pre.REPLAY_MEMORY_CAPACITY)
 
     def placeholder_inputs(self):
         h, w, c = self.get_input_shape()
@@ -166,14 +168,14 @@ class Pre(object):
 
         x_entropy = tf.nn.softmax_cross_entropy_with_logits(labels=actions_pl, logits=self.predictions)
 #         print('xxx', x_entropy.shape, actions_pl.shape, self.advantages.shape, self.rewards_pl.shape)
-        reg_loss = tf.reduce_sum([tf.reduce_sum(tf.square(x)) for x in self.policy_net_vars])
+        reg_loss = tf.reduce_sum(tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES))
         self.rl_loss = tf.reduce_mean(x_entropy * delta) + 0.001 * reg_loss
 
-#         self.policy_grads = self.optimizer.compute_gradients(rl_loss, self.policy_net_vars)
+#         self.policy_grads = self.optimizer.compute_gradients(self.loss, self.policy_net_vars)
 #         for i, (grad, var) in enumerate(self.policy_grads):
 #             if grad is not None:
 #                 self.policy_grads[i] = (-grad * self.advantages, var)
-#         self.policy_opt_op = tf.train.GradientDescentOptimizer(0.0001).apply_gradients(self.policy_grads)
+#         self.rl_policy_opt_op = tf.train.GradientDescentOptimizer(0.0001).apply_gradients(self.policy_grads)
         self.rl_policy_opt_op = tf.train.GradientDescentOptimizer(0.0001).minimize(self.rl_loss)
 
         mean_square_loss = tf.reduce_mean(tf.squared_difference(self.rewards_pl, self.value_outputs))
@@ -193,7 +195,7 @@ class Pre(object):
 #             if grad is not None:
 #                 tf.histogram_summary(var.name + '/its_grads', grad)
 
-        tf.summary.scalar("rl_pg_loss", self.rl_loss)
+#         tf.summary.scalar("rl_pg_loss", self.rl_loss)
         tf.summary.scalar("advantages", self.advantages)
 #         tf.summary.scalar("raw_value_loss", mean_square_loss)
 #         tf.summary.scalar("reg_value_loss", value_reg_loss)
@@ -405,9 +407,10 @@ class Pre(object):
         # switch perspective
         bn = np.count_nonzero(black)
         wn = np.count_nonzero(white)
-        if bn != wn:  # if it is white turn, swith it
+        if bn != wn:  # if it is white turn, switch it
             black, white = white, black
 
+        # (cur_player, next_player, legal)
         image = np.dstack((black, white, empty)).ravel()
         legal = empty.astype(bool)
         return image, legal
@@ -483,20 +486,20 @@ class Pre(object):
         assert result_steps > 0
         corrected_reward_for_quick_finish = np.exp(-3 * 2 * result_steps / Pre.NUM_ACTIONS) + 0.95
         decay_coeff = gamma ** (result_steps - 1)
-        result_of_this_game = 0
+#         result_of_this_game = 0
 
         memo_one_game = []
         for who, st0, st1 in self.observation:
-#             if who != kwargs['stand_for']:
-#                 continue
+            if who != kwargs['stand_for']:
+                continue
             action = np.not_equal(st1.stones, st0.stones).astype(np.float32)
             reward = 0
             if winner != 0:
                 reward = 1 if who == winner else -1
-            result_of_this_game = reward
+#             result_of_this_game = reward
             state, _ = self.adapt_state(st0.stones)
-            reward *= decay_coeff * corrected_reward_for_quick_finish
-            decay_coeff /= gamma
+#             reward *= decay_coeff * corrected_reward_for_quick_finish
+#             decay_coeff /= gamma
 
             memo_one_game.append((state, action, reward))
 
@@ -506,36 +509,42 @@ class Pre(object):
         if not self.replay_memory_games.is_full():
             return
 
-        minibatch = 2
-#         if not self.replay_memory_games.is_big_enough(minibatch):
-#             return
+        print('reinforcing...')
+        self.rl_train()
+        now = datetime.now().strftime("%Y%m%d-%H%M%S")
+        file = os.path.join(Pre.REPLAY_MEMORY_DIR, "replay-{}.npz".format(now,))
+        self.replay_memory_games.dump(file)
+        self.replay_memory_games.clear()
+        print('my mind refreshed!')
 
-        samples = self.replay_memory_games.sample(minibatch)
+    def rl_train(self):
+        assert self.replay_memory_games.is_full()
+        h, w, c = self.get_input_shape()
+        
+        minibatch = 2        
+        iterations = 2 * Pre.REPLAY_MEMORY_CAPACITY // minibatch
+        for i in range(iterations):
+            samples = self.replay_memory_games.sample(minibatch)
 
-        states = [sar[0] for g in samples for sar in g]
-        actions = [sar[1] for g in samples for sar in g]
-        rewards = [sar[2] for g in samples for sar in g]
+            states = [sar[0] for g in samples for sar in g]
+            actions = [sar[1] for g in samples for sar in g]
+            rewards = [sar[2] for g in samples for sar in g]
 
-        states = np.array(states)
-        actions = np.array(actions)
-        rewards = np.array(rewards)
+            states = np.array(states)
+            actions = np.array(actions)
+            rewards = np.array(rewards)
 
-        states = states.reshape((-1, h, w, c))
+            states = states.reshape((-1, h, w, c))
 
-        fd = {self.states_pl: states, self.actions_pl: actions, self.rewards_pl: rewards}  # [i][np.newaxis, ...]
-        _, rl_pg_loss = self.sess.run(
-            [self.rl_policy_opt_op, self.rl_loss], feed_dict=fd)
-        print('reward: {:>2d}, winner: {:d}, stand for: {:d}, policy net loss: {:6.3f}, value net loss: {:7.3f}'
-              .format(result_of_this_game, winner, kwargs['stand_for'], rl_pg_loss, 0.))
-        self.rl_global_step += 1
-        self.stat.append((self.rl_global_step, rewards[-1], rl_pg_loss, 1 if winner == kwargs['stand_for'] else 0))
+            fd = {self.states_pl: states, self.actions_pl: actions, self.rewards_pl: rewards}
+            _ = self.sess.run([self.rl_policy_opt_op], feed_dict=fd)
 
-        if (self.rl_global_step % 100 == 0):
-            summary_str = self.sess.run(self.summary_op, feed_dict=fd)
-            self.summary_writer.add_summary(summary_str, self.rl_global_step)
-            self.summary_writer.flush()
-#         if (self.rl_global_step % 10 == 0):
-#         np.savez(Pre.STAT_FILE, stat=np.array(self.stat))
+            self.rl_global_step += 1
+
+            if (i % 100 == 0):
+                summary_str = self.sess.run(self.summary_op, feed_dict=fd)
+                self.summary_writer.add_summary(summary_str, self.rl_global_step)
+                self.summary_writer.flush()
 
     def void(self):
         self.observation = []

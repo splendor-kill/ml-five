@@ -5,7 +5,6 @@ from tentacle.strategy import Strategy, Auditor
 from tentacle.utils import attemper
 from builtins import (super)
 
-
 class StrategyDNN(Strategy, Auditor):
     def __init__(self, is_train=False, is_revive=True, is_rl=False):
         super().__init__()
@@ -14,7 +13,7 @@ class StrategyDNN(Strategy, Auditor):
         self.anneal_steps = 90 * 1000  # N steps for annealing exploration
         self.absorb_progress = 0
         self.exploration = self.init_exp
-        self.temperature = 0.2
+        self.temperature = 0.003
         self.win_ratio = 1.
 
         self.brain = DCNN3(is_train, is_revive, is_rl)
@@ -33,46 +32,56 @@ class StrategyDNN(Strategy, Auditor):
     def board_value(self, board, context):
         pass
 
-    def preferred_move(self, board):
+    def explore_strategy1(self, probs, legal, top1):
+        if np.random.rand() < self.exploration:
+            top_n = np.argsort(probs)[-2:]
+            if probs[top_n[-1]] - probs[top_n[-2]] < 0.2:
+                rand_loc = np.random.choice(top_n)
+                return rand_loc, rand_loc != top1
+        return top1, False
+
+    def explore_strategy2(self, probs, legal, top1):
+#         if self.win_ratio is not None:
+#             if self.win_ratio > 1.1:
+#                 self.temperature += 0.002
+#             elif self.win_ratio < 1/1.1:
+#                 self.temperature -= 0.002
+        self.temperature = min(max(0.001, self.temperature), 100)
+        probs = attemper(probs, self.temperature, legal)
+        rand_loc = np.random.choice(Board.BOARD_SIZE_SQ, 1, p=probs)
+#         rand_loc = np.random.multinomial(1, probs).argmax()
+        return rand_loc, rand_loc != top1
+
+    def preferred_move(self, board, game=None):
         v = board.stones
 
         state, legal = self.get_input_values(v)
         probs = self.brain.get_move_probs(state)
+        probs = probs[0]  # * legal
+        if np.allclose(probs, 0.):
+            print('output probs all 0')
+        rand_loc = np.argmax(probs)
 
-#         if np.random.rand() < (self.exploration if self.brain.is_rl else self.final_exp):
+        explored = False
         if self.brain.is_rl:
-            if self.win_ratio is not None:
-                if self.win_ratio > 1.25:
-                    self.temperature += 0.002
-                elif self.win_ratio < 0.8:
-                    self.temperature -= 0.002
-            self.temperature = min(max(0.01, self.temperature), 100)
-            probs = attemper(probs[0], self.temperature, legal)
-            rand_loc = np.random.choice(Board.BOARD_SIZE_SQ, 1, p=probs)
-#             rand_loc = np.random.choice(np.where(v == Board.STONE_EMPTY)[0], 1)[0]
-            loc = np.unravel_index(rand_loc, (Board.BOARD_SIZE, Board.BOARD_SIZE))
-#             print('explore at:', loc)
-            return loc
-        else:
-            best_move = np.argmax(probs, 1)[0]
-#             if self.brain.is_rl:
-#                 best_move = np.argmax(np.random.multinomial(1, probs[0] - np.finfo(np.float32).epsneg))
-#
-            loc = np.unravel_index(best_move, (Board.BOARD_SIZE, Board.BOARD_SIZE))
-            is_legal = board.is_legal(loc[0], loc[1])
-            if not is_legal:
-                # print('best move:', best_move, ', loc:', loc, 'is legal:', is_legal)
-                rand_loc = np.random.choice(np.where(v == Board.STONE_EMPTY)[0], 1)[0]
-                loc = np.unravel_index(rand_loc, (Board.BOARD_SIZE, Board.BOARD_SIZE))
-#                 print(self.stand_for,' get illegal, random choice:', loc)
+            loc1, explored = self.explore_strategy1(probs, legal, rand_loc)
+            if explored:
+                rand_loc = loc1
+                game.exploration_counter += 1
 
-            return loc
+        loc = np.unravel_index(rand_loc, (Board.BOARD_SIZE, Board.BOARD_SIZE))
+        is_legal = board.is_legal(loc[0], loc[1])
+        if not is_legal:
+            print(self.stand_for, 'illegal loc:', loc, explored, repr(v), repr(probs), 'select a valid loc randomly.', game.step_counter)
+            rand_loc = np.random.choice(np.where(v == Board.STONE_EMPTY)[0], 1)[0]
+            loc = np.unravel_index(rand_loc, (Board.BOARD_SIZE, Board.BOARD_SIZE))
+        return loc
 
     def preferred_board(self, old, moves, context):
         if not moves:
             raise Exception('should be ended')
 
-        loc = self.preferred_move(old)
+        loc = self.preferred_move(old, context)
         best_move = np.ravel_multi_index(loc, (Board.BOARD_SIZE, Board.BOARD_SIZE))
         v = old.stones
         if v[best_move] == Board.STONE_EMPTY:
@@ -107,8 +116,8 @@ class StrategyDNN(Strategy, Auditor):
         self.brain.void()
 
     def swallow(self, who, st0, st1, **kwargs):
-#         if who != self.stand_for:
-#             return
+        if who != self.stand_for:
+            return
         self.brain.swallow(who, st0, st1, **kwargs)
 
     def absorb(self, winner, **kwargs):
