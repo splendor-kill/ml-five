@@ -176,7 +176,7 @@ class Pre(object):
 #             if grad is not None:
 #                 self.policy_grads[i] = (-grad * self.advantages, var)
 #         self.rl_policy_opt_op = tf.train.GradientDescentOptimizer(0.0001).apply_gradients(self.policy_grads)
-        self.rl_policy_opt_op = tf.train.GradientDescentOptimizer(0.0001).minimize(self.rl_loss)
+        self.rl_policy_opt_op = tf.train.GradientDescentOptimizer(0.00001).minimize(self.rl_loss)
 
         mean_square_loss = tf.reduce_mean(tf.squared_difference(self.rewards_pl, self.value_outputs))
         value_reg_loss = tf.reduce_sum([tf.reduce_sum(tf.square(x)) for x in value_net_vars])
@@ -195,7 +195,7 @@ class Pre(object):
 #             if grad is not None:
 #                 tf.histogram_summary(var.name + '/its_grads', grad)
 
-#         tf.summary.scalar("rl_pg_loss", self.rl_loss)
+        tf.summary.scalar("rl_pg_loss", self.rl_loss)
         tf.summary.scalar("advantages", self.advantages)
 #         tf.summary.scalar("raw_value_loss", mean_square_loss)
 #         tf.summary.scalar("reg_value_loss", value_reg_loss)
@@ -254,7 +254,7 @@ class Pre(object):
         feed_dict = {
             self.states_pl: state.reshape(1, -1).reshape((-1, h, w, c)),
         }
-        return self.sess.run(self.predict_probs, feed_dict=feed_dict)
+        return self.sess.run([self.predict_probs, self.predictions], feed_dict=feed_dict)
 
     def get_state_value(self, state):
         h, w, c = self.get_input_shape()
@@ -504,7 +504,7 @@ class Pre(object):
             memo_one_game.append((state, action, reward))
 
         if memo_one_game:
-            self.replay_memory_games.append(memo_one_game)
+            self.replay_memory_games.append(memo_one_game)  # [-3:]
 
         if not self.replay_memory_games.is_full():
             return
@@ -520,8 +520,8 @@ class Pre(object):
     def rl_train(self):
         assert self.replay_memory_games.is_full()
         h, w, c = self.get_input_shape()
-        
-        minibatch = 2        
+
+        minibatch = 10
         iterations = 2 * Pre.REPLAY_MEMORY_CAPACITY // minibatch
         for i in range(iterations):
             samples = self.replay_memory_games.sample(minibatch)

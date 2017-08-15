@@ -510,7 +510,7 @@ class Gui(object):
         win1, win2, draw = 0, 0, 0
 
         # n_lose = 0
-        iter_n = 200
+        iter_n = 20
         i = 0
         while True:
             print('iter:', i)

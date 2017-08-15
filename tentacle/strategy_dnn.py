@@ -13,7 +13,7 @@ class StrategyDNN(Strategy, Auditor):
         self.anneal_steps = 90 * 1000  # N steps for annealing exploration
         self.absorb_progress = 0
         self.exploration = self.init_exp
-        self.temperature = 0.003
+        self.temperature = 0.01
         self.win_ratio = 1.
 
         self.brain = DCNN3(is_train, is_revive, is_rl)
@@ -56,15 +56,17 @@ class StrategyDNN(Strategy, Auditor):
         v = board.stones
 
         state, legal = self.get_input_values(v)
-        probs = self.brain.get_move_probs(state)
-        probs = probs[0]  # * legal
+        probs, raw_pred = self.brain.get_move_probs(state)
+        probs = probs[0]
         if np.allclose(probs, 0.):
             print('output probs all 0')
+        probs *= legal
+
         rand_loc = np.argmax(probs)
 
         explored = False
         if self.brain.is_rl:
-            loc1, explored = self.explore_strategy1(probs, legal, rand_loc)
+            loc1, explored = self.explore_strategy2(probs, legal, rand_loc)
             if explored:
                 rand_loc = loc1
                 game.exploration_counter += 1
@@ -72,7 +74,7 @@ class StrategyDNN(Strategy, Auditor):
         loc = np.unravel_index(rand_loc, (Board.BOARD_SIZE, Board.BOARD_SIZE))
         is_legal = board.is_legal(loc[0], loc[1])
         if not is_legal:
-            print(self.stand_for, 'illegal loc:', loc, explored, repr(v), repr(probs), 'select a valid loc randomly.', game.step_counter)
+            print(self.stand_for, 'illegal loc:', loc, explored, repr(v), repr(probs), repr(raw_pred), game.step_counter)
             rand_loc = np.random.choice(np.where(v == Board.STONE_EMPTY)[0], 1)[0]
             loc = np.unravel_index(rand_loc, (Board.BOARD_SIZE, Board.BOARD_SIZE))
         return loc

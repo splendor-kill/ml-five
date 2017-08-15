@@ -30,7 +30,7 @@ class DCNN3(Pre):
             conv, conv_out_dim = self.create_conv_net(states_pl)
             raw_predictions = self.create_policy_net(conv, conv_out_dim, states_pl)
             legal_filter = tf.reshape(tf.slice(states_pl, [0, 0, 0, 2], [-1, -1, -1, 1]), [-1, Pre.NUM_ACTIONS])
-            self.predictions = raw_predictions * legal_filter
+            self.predictions = (raw_predictions + tf.reduce_min(raw_predictions)) * legal_filter
 
         with tf.variable_scope("value_net"):
             self.value_outputs = self.create_value_net(conv, conv_out_dim, states_pl)
@@ -41,11 +41,13 @@ class DCNN3(Pre):
 
 #         reg_loss = tf.reduce_sum([tf.reduce_sum(tf.square(x)) for x in self.policy_net_vars])
         reg_loss = tf.reduce_sum(tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES))
-        self.loss = sl_pg_loss + 0.001 * reg_loss
+#         illegal_penalty = tf.reduce_sum(raw_predictions * (1. - legal_filter))
+        self.loss = sl_pg_loss + 0.001 * reg_loss  # + 0.1 * illegal_penalty
 
         tf.summary.scalar("raw_policy_loss", sl_pg_loss)
         tf.summary.scalar("reg_policy_loss", reg_loss)
         tf.summary.scalar("all_policy_loss", self.loss)
+#         tf.summary.scalar("illegal_penalty", illegal_penalty)
 
         self.optimizer = tf.train.AdamOptimizer(0.0001)
         self.opt_op = self.optimizer.minimize(self.loss)
@@ -107,7 +109,6 @@ class DCNN3(Pre):
         conv = tf.identity(conv, 'policy_net_conv')
         dense = tf.layers.dense(inputs=conv,
                                 units=Pre.NUM_ACTIONS,
-                                activation=tf.nn.relu,
                                 kernel_regularizer=tf.nn.l2_loss)
         return dense
 
