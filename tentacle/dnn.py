@@ -41,6 +41,7 @@ class Pre(object):
 
     WORK_DIR = '/home/splendor/wd2t/fusor'
     BRAIN_DIR = os.path.join(WORK_DIR, 'brain')
+    RL_BRAIN_DIR = os.path.join(WORK_DIR, 'rl_brain')
     BRAIN_CHECKPOINT_FILE = os.path.join(BRAIN_DIR, 'model.ckpt')
     SUMMARY_DIR = os.path.join(WORK_DIR, 'summary')
     STAT_FILE = os.path.join(WORK_DIR, 'stat.npz')
@@ -159,8 +160,7 @@ class Pre(object):
         # SARSA: alpha * [r + gamma * Q(s', a') - Q(s, a)] * grad
         # Q: alpha * [r + gamma * max<a>Q(s', a) - Q(s, a)] * grad
 
-        value_net_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope="value_net")
-        delta = self.rewards_pl  # - self.value_outputs
+        delta = self.rewards_pl - self.value_outputs
         self.advantages = tf.reduce_mean(delta)
 
         # learning_rate = tf.train.exponential_decay(self.starter_learning_rate,
@@ -168,7 +168,7 @@ class Pre(object):
 
         x_entropy = tf.nn.softmax_cross_entropy_with_logits(labels=actions_pl, logits=self.predictions)
 #         print('xxx', x_entropy.shape, actions_pl.shape, self.advantages.shape, self.rewards_pl.shape)
-        reg_loss = tf.reduce_sum(tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES))
+        reg_loss = tf.reduce_sum(tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES, scope="policy_net"))
         self.rl_loss = tf.reduce_mean(x_entropy * delta) + 0.001 * reg_loss
 
 #         self.policy_grads = self.optimizer.compute_gradients(self.loss, self.policy_net_vars)
@@ -176,19 +176,21 @@ class Pre(object):
 #             if grad is not None:
 #                 self.policy_grads[i] = (-grad * self.advantages, var)
 #         self.rl_policy_opt_op = tf.train.GradientDescentOptimizer(0.0001).apply_gradients(self.policy_grads)
-        self.rl_policy_opt_op = tf.train.GradientDescentOptimizer(0.00001).minimize(self.rl_loss)
+        self.rl_policy_opt_op = tf.train.GradientDescentOptimizer(0.00001).minimize(self.rl_loss, var_list=self.policy_net_vars)
 
         mean_square_loss = tf.reduce_mean(tf.squared_difference(self.rewards_pl, self.value_outputs))
-        value_reg_loss = tf.reduce_sum([tf.reduce_sum(tf.square(x)) for x in value_net_vars])
+        value_reg_loss = tf.reduce_sum(tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES, scope="value_net"))
         self.value_loss = mean_square_loss + 0.001 * value_reg_loss
+
+        value_net_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope="value_net")
 
 #         self.value_grads = self.optimizer.compute_gradients(self.value_loss, value_net_vars)
 #         grads = self.policy_grads + self.value_grads
 #         for i, (grad, var) in enumerate(grads):
 #             if grad is not None:
 #                 grads[i] = (tf.clip_by_norm(grad, 5.0), var)
-        self.value_opt_op = self.optimizer.minimize(self.value_loss)
 #         self.train_op = tf.train.GradientDescentOptimizer(0.0001).apply_gradients(grads)
+        self.value_opt_op = tf.train.GradientDescentOptimizer(0.00001).minimize(self.value_loss, var_list=value_net_vars)
 
 #         for grad, var in self.value_grads:
 #             tf.histogram_summary(var.name, var)
@@ -197,9 +199,9 @@ class Pre(object):
 
         tf.summary.scalar("rl_pg_loss", self.rl_loss)
         tf.summary.scalar("advantages", self.advantages)
-#         tf.summary.scalar("raw_value_loss", mean_square_loss)
-#         tf.summary.scalar("reg_value_loss", value_reg_loss)
-#         tf.summary.scalar("all_value_loss", self.value_loss)
+        tf.summary.scalar("raw_value_loss", mean_square_loss)
+        tf.summary.scalar("reg_value_loss", value_reg_loss)
+        tf.summary.scalar("all_value_loss", self.value_loss)
 
     def prepare(self):
         with tf.Graph().as_default():
@@ -209,6 +211,7 @@ class Pre(object):
             self.summary_op = tf.summary.merge_all()
 
             self.saver = tf.train.Saver(tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope="policy_net"))  # tf.trainable_variables())
+            self.saver_all = tf.train.Saver(tf.trainable_variables(), max_to_keep=100)
 
             init = tf.global_variables_initializer()
 
@@ -216,14 +219,21 @@ class Pre(object):
             logdir = os.path.join(Pre.SUMMARY_DIR, "run-{}".format(now,))
             self.summary_writer = tf.summary.FileWriter(logdir, tf.get_default_graph())
 
-            self.sess = tf.Session(graph=tf.get_default_graph())
+            self.sess = tf.Session()
             self.sess.run(init)
             print('Initialized')
 
-    def load_from_vat(self):
+    def load_from_vat(self, from_file=None, part_vars=True):
+        saver = self.saver if part_vars else self.saver_all
+        if from_file is not None:
+            saver.restore(self.sess, from_file)
+            a = from_file.rsplit('-', 1)
+            self.gstep = int(a[1]) if len(a) > 1 else 1
+            return
+
         ckpt = tf.train.get_checkpoint_state(Pre.BRAIN_DIR)
         if ckpt and ckpt.model_checkpoint_path:
-            self.saver.restore(self.sess, ckpt.model_checkpoint_path)
+            saver.restore(self.sess, ckpt.model_checkpoint_path)
             a = ckpt.model_checkpoint_path.rsplit('-', 1)
             self.gstep = int(a[1]) if len(a) > 1 else 1
 
@@ -428,11 +438,11 @@ class Pre(object):
         if self.sess is not None:
             self.sess.close()
 
-    def run(self):
+    def run(self, from_file=None, part_vars=True):
         self.prepare()
 
         if self.is_revive:
-            self.load_from_vat()
+            self.load_from_vat(from_file, part_vars)
 
         if self.is_train:
             epoch = 0
@@ -462,8 +472,8 @@ class Pre(object):
         #     self.sess.run([self.rl_op], feed_dict=feed_dict)
         pass
 
-    def save_params(self):
-        self.saver.save(self.sess, Pre.BRAIN_CHECKPOINT_FILE, global_step=self.gstep)
+    def save_params(self, where, step):
+        self.saver_all.save(self.sess, where, global_step=step)
 
     def swallow(self, who, st0, action, **kwargs):
         self.observation.append((who, st0, action))
@@ -510,14 +520,14 @@ class Pre(object):
             return
 
         print('reinforcing...')
-        self.rl_train()
-        now = datetime.now().strftime("%Y%m%d-%H%M%S")
-        file = os.path.join(Pre.REPLAY_MEMORY_DIR, "replay-{}.npz".format(now,))
-        self.replay_memory_games.dump(file)
+        self.rl_train(opt_policy_only=False)
+#         now = datetime.now().strftime("%Y%m%d-%H%M%S")
+#         file = os.path.join(Pre.REPLAY_MEMORY_DIR, "replay-{}.npz".format(now,))
+#         self.replay_memory_games.dump(file)
         self.replay_memory_games.clear()
         print('my mind refreshed!')
 
-    def rl_train(self):
+    def rl_train(self, opt_policy_only=True):
         assert self.replay_memory_games.is_full()
         h, w, c = self.get_input_shape()
 
@@ -534,10 +544,19 @@ class Pre(object):
             actions = np.array(actions)
             rewards = np.array(rewards)
 
+#             idx = np.arange(states.shape[0])
+#             np.random.shuffle(idx)
+#             states = states[idx]
+#             actions = actions[idx]
+#             rewards = rewards[idx]
+
             states = states.reshape((-1, h, w, c))
 
             fd = {self.states_pl: states, self.actions_pl: actions, self.rewards_pl: rewards}
-            _ = self.sess.run([self.rl_policy_opt_op], feed_dict=fd)
+            if opt_policy_only:
+                self.sess.run([self.rl_policy_opt_op], feed_dict=fd)
+            else:
+                self.sess.run([self.rl_policy_opt_op, self.value_opt_op], feed_dict=fd)
 
             self.rl_global_step += 1
 

@@ -2,6 +2,8 @@
 # print(matplotlib.get_backend())
 # print(matplotlib.is_interactive())
 # matplotlib.use('Qt4Agg')
+import os
+import glob
 import copy
 import datetime
 import random
@@ -10,6 +12,7 @@ from threading import Thread
 import matplotlib.patches as patches
 import matplotlib.pyplot as plt
 import numpy as np
+import tensorflow as tf
 from six.moves import queue
 from tentacle.board import Board
 from tentacle.game import Game
@@ -498,25 +501,47 @@ class Gui(object):
 
         plt.title('press F3 start')
 
-    def reinforce(self):
-        STAT_FILE = '/home/splendor/wd2t/fusor/stat.npz'
-        if len(self.oppo_pool) == 0:
-            self.oppo_pool.append(StrategyDNN(is_train=False, is_revive=True, is_rl=False))
 
-        s1 = StrategyDNN(is_train=False, is_revive=True, is_rl=True)
-        s2 = random.choice(self.oppo_pool)
+    def reinforce(self, resume=False):
+        WORK_DIR = '/home/splendor/wd2t/fusor'
+        SL_BRAIN_DIR = os.path.join(WORK_DIR, 'brain')
+        RL_BRAIN_DIR = os.path.join(WORK_DIR, 'rl_brain')
+        STAT_FILE = os.path.join(WORK_DIR, 'stat.npz')
+        FILE_PREFIX = 'model.ckpt'
+
+        self.oppo_pool = self.get_mindsets(RL_BRAIN_DIR, FILE_PREFIX)
+
+        part_vars = True
+        if resume and len(self.oppo_pool) != 0:
+            file = tf.train.latest_checkpoint(RL_BRAIN_DIR)
+            part_vars = False
+        else:
+            file = tf.train.latest_checkpoint(SL_BRAIN_DIR)
+            part_vars = True
+        s1 = StrategyDNN(is_train=False, is_revive=True, is_rl=True, from_file=file, part_vars=part_vars)
+        print('I was born from', file)
+
+        if len(self.oppo_pool) != 0:
+            file = random.choice(self.oppo_pool)
+            file = os.path.join(RL_BRAIN_DIR, file)
+            part_vars = False
+        else:
+            file = tf.train.latest_checkpoint(SL_BRAIN_DIR)
+            part_vars = True
+        s2 = StrategyDNN(is_train=False, is_revive=True, is_rl=False, from_file=file, part_vars=part_vars)
+        print('vs.', file)
 
         stat = []
         win1, win2, draw = 0, 0, 0
 
-        # n_lose = 0
-        iter_n = 20
+#         n_lose = 0
+        iter_n = 200
         i = 0
         while True:
             print('iter:', i)
 
             step_counter, explo_counter = 0, 0
-            episodes = 500
+            episodes = 1000
             for _ in range(episodes):
                 s1.stand_for = random.choice([Board.STONE_BLACK, Board.STONE_WHITE])
                 s2.stand_for = Board.oppo(s1.stand_for)
@@ -531,15 +556,18 @@ class Gui(object):
                 step_counter += g.step_counter
                 explo_counter += g.exploration_counter
 
-#             if win1 > win2:
-#                 s1_c = s1.mind_clone()
-#                 self.oppo_pool.append(s1_c)
-#                 s2 = random.choice(self.oppo_pool)
-#                 n_lose = 0
-#                 print('stronger, oppos:', len(self.oppo_pool))
+            if s1.win_ratio > 1.1:
+                file = FILE_PREFIX + '-' + str(i)
+                s1.mind_clone(os.path.join(RL_BRAIN_DIR, FILE_PREFIX), i)
+                self.oppo_pool.append(file)
+                file = random.choice(self.oppo_pool)
+                file = os.path.join(RL_BRAIN_DIR, file)
+                s2.close()
+                s2 = StrategyDNN(is_train=False, is_revive=True, is_rl=False, from_file=file, part_vars=False)
+                n_lose = 0
+                print('vs.', file)
 #             elif win1 < win2:
 #                 n_lose += 1
-#
 #             if n_lose >= 50:
 #                 break
 
@@ -562,6 +590,14 @@ class Gui(object):
 
         print('rl done. you can try it.')
         self.strategy_1 = self.strategy_2 = s1
+
+    def get_mindsets(self, folder, prefix):
+        mindsets = set()
+        pattern = os.path.join(folder, prefix) + '*'
+        listing = glob.glob(pattern)
+        for f in listing:
+            mindsets.add(os.path.splitext(os.path.basename(f))[0])
+        return list(mindsets)
 
     def on_update(self):
         i = 0

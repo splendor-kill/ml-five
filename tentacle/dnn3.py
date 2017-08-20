@@ -33,6 +33,7 @@ class DCNN3(Pre):
             self.predictions = (raw_predictions + tf.reduce_min(raw_predictions)) * legal_filter
 
         with tf.variable_scope("value_net"):
+#             conv, conv_out_dim = self.create_conv_net(states_pl)
             self.value_outputs = self.create_value_net(conv, conv_out_dim, states_pl)
 
         self.policy_net_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope="policy_net")
@@ -40,7 +41,7 @@ class DCNN3(Pre):
         sl_pg_loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(labels=actions_pl, logits=self.predictions))
 
 #         reg_loss = tf.reduce_sum([tf.reduce_sum(tf.square(x)) for x in self.policy_net_vars])
-        reg_loss = tf.reduce_sum(tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES))
+        reg_loss = tf.reduce_sum(tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES, scope="policy_net"))
 #         illegal_penalty = tf.reduce_sum(raw_predictions * (1. - legal_filter))
         self.loss = sl_pg_loss + 0.001 * reg_loss  # + 0.1 * illegal_penalty
 
@@ -69,7 +70,6 @@ class DCNN3(Pre):
         return tf.nn.batch_normalization(conv, mean, variance, offset, scale, 1e-5)
 
     def create_conv_net(self, states_pl):
-
         inputs = states_pl
         for _ in range(6):
             conv = tf.layers.conv2d(inputs=inputs,
@@ -114,16 +114,16 @@ class DCNN3(Pre):
 
     def create_value_net(self, conv, conv_out_dim, states_pl):
         conv = tf.identity(conv, 'value_net_conv')
-#         num_hidden = 128
-#         conv_out_dim = conv.get_shape()[1]
-#         W_3 = self.weight_variable([conv_out_dim, num_hidden])
-#         b_3 = self.bias_variable([num_hidden])
-        W_4 = self.weight_variable([conv_out_dim, 1])
-        b_4 = self.bias_variable([1])
+        dense = tf.layers.dense(inputs=conv,
+                                units=128,
+                                kernel_regularizer=tf.nn.l2_loss,
+                                activation=tf.nn.relu)
+        dense = tf.layers.dense(inputs=dense,
+                                units=1,
+                                kernel_regularizer=tf.nn.l2_loss,
+                                activation=tf.nn.tanh)
 
-#         hidden = tf.nn.relu(tf.matmul(conv, W_3) + b_3)
-        fc_out = tf.matmul(conv, W_4) + b_4
-        return fc_out
+        return dense
 
     def forge(self, row):
         board = row[:Board.BOARD_SIZE_SQ]

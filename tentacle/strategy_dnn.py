@@ -6,7 +6,7 @@ from tentacle.utils import attemper
 from builtins import (super)
 
 class StrategyDNN(Strategy, Auditor):
-    def __init__(self, is_train=False, is_revive=True, is_rl=False):
+    def __init__(self, is_train=False, is_revive=True, is_rl=False, from_file=None, part_vars=True):
         super().__init__()
         self.init_exp = 0.2  # initial exploration prob
         self.final_exp = 0.001  # final exploration prob
@@ -17,7 +17,7 @@ class StrategyDNN(Strategy, Auditor):
         self.win_ratio = 1.
 
         self.brain = DCNN3(is_train, is_revive, is_rl)
-        self.brain.run()
+        self.brain.run(from_file, part_vars)
 
     def update_at_end(self, old, new):
         if not self.needs_update():
@@ -66,7 +66,7 @@ class StrategyDNN(Strategy, Auditor):
 
         explored = False
         if self.brain.is_rl:
-            loc1, explored = self.explore_strategy2(probs, legal, rand_loc)
+            loc1, explored = self.explore_strategy1(probs, legal, rand_loc)
             if explored:
                 rand_loc = loc1
                 game.exploration_counter += 1
@@ -106,10 +106,8 @@ class StrategyDNN(Strategy, Auditor):
     def setup(self):
         pass
 
-    def mind_clone(self):
-        self.brain.save_params()
-
-        return StrategyDNN(False, True, False)
+    def mind_clone(self, where, step):
+        self.brain.save_params(where, step)
 
     def close(self):
         self.brain.close()
