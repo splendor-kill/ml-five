@@ -18,4 +18,5 @@ cfg.DATA_SET_TRAIN = os.path.join(cfg.DATA_SET_DIR, 'train.txt')
 cfg.DATA_SET_VALID = os.path.join(cfg.DATA_SET_DIR, 'validation.txt')
 cfg.DATA_SET_TEST = os.path.join(cfg.DATA_SET_DIR, 'test.txt')
 
-cfg.REPLAY_MEMORY_CAPACITY = 10
+cfg.REPLAY_MEMORY_CAPACITY = 1000
+cfg.REINFORCE_PERIOD = 500

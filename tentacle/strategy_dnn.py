@@ -35,6 +35,8 @@ class StrategyDNN(Strategy, Auditor):
     def explore_strategy1(self, probs, legal, top1):
         if np.random.rand() < self.exploration:
             top_n = np.argsort(probs)[-2:]
+            if legal[top_n[-1]] != 1 or legal[top_n[-2]] != 1:
+                return top1, False
             if probs[top_n[-1]] - probs[top_n[-2]] < 0.2:
                 rand_loc = np.random.choice(top_n)
                 return rand_loc, rand_loc != top1
@@ -51,6 +53,18 @@ class StrategyDNN(Strategy, Auditor):
         rand_loc = np.random.choice(Board.BOARD_SIZE_SQ, 1, p=probs)
 #         rand_loc = np.random.multinomial(1, probs).argmax()
         return rand_loc, rand_loc != top1
+
+    def explore_strategy3(self, probs, legal, top1):
+        if np.random.rand() < self.exploration:
+            rand_loc = np.random.choice(np.where(legal == 1)[0], 1)[0]
+            return rand_loc, rand_loc != top1
+        return top1, False
+
+    def explore_strategy4(self, probs, legal, top1):
+        '''
+            stat action distributin, encourage small action move first
+        '''
+        return top1, False
 
     def preferred_move(self, board, game=None):
         v = board.stones

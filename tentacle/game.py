@@ -1,5 +1,8 @@
+import os
+from datetime import datetime
 import numpy as np
 from tentacle.board import Board
+from tentacle.config import cfg
 
 
 class Game(object):
@@ -23,6 +26,7 @@ class Game(object):
         self.q = q
         if self.q is not None:
             self.q.put(('start',))
+#         self.trace = [board.stones]
 
     def step(self):
         moves, self.whose_turn, _ = Game.possible_moves(self.board)
@@ -39,6 +43,9 @@ class Game(object):
         if new_board.exploration:
             strat.setup()
             self.exploration_counter += 1
+
+#         if len(self.trace) < 10:
+#             self.trace.append(new_board.stones)
 
         self.over, self.winner, self.last_loc = new_board.is_over(self.board)
 
@@ -68,6 +75,10 @@ class Game(object):
                 self.q.put(('move', self.whose_turn, self.last_loc))
 
             if self.over:
+#                 if len(self.trace) < 9:
+#                     now = datetime.now().strftime("%Y%m%d-%H%M%S")
+#                     file = os.path.join(cfg.WORK_DIR, "queer-game{}".format(now,))
+#                     np.savez(file, stat=np.array(self.trace))
                 if self.q is not None:
                     self.q.put(('end', self.winner,))
                 break

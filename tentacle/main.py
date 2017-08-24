@@ -14,6 +14,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import tensorflow as tf
 from six.moves import queue
+from tentacle.config import cfg
 from tentacle.board import Board
 from tentacle.game import Game
 from tentacle.server import net
@@ -24,6 +25,13 @@ from tentacle.strategy import StrategyMC
 from tentacle.strategy import StrategyMinMax
 from tentacle.strategy import StrategyTD, StrategyRand
 from tentacle.strategy_dnn import StrategyDNN
+
+
+WORK_DIR = cfg.WORK_DIR
+SL_BRAIN_DIR = cfg.BRAIN_DIR
+RL_BRAIN_DIR = cfg.RL_BRAIN_DIR
+STAT_FILE = cfg.STAT_FILE
+FILE_PREFIX = cfg.FILE_PREFIX
 
 
 class Gui(object):
@@ -281,7 +289,8 @@ class Gui(object):
         if self.strategy_1 is None:
             # s1 = StrategyMC()
             # s1 = StrategyANN(feat, feat * 2)
-            s1 = StrategyDNN()
+            file = tf.train.latest_checkpoint(RL_BRAIN_DIR)
+            s1 = StrategyDNN(from_file=file, part_vars=True)
             # s1 = StrategyMCTS1()
             self.strategy_1 = s1
         else:
@@ -503,12 +512,6 @@ class Gui(object):
 
 
     def reinforce(self, resume=False):
-        WORK_DIR = '/home/splendor/wd2t/fusor'
-        SL_BRAIN_DIR = os.path.join(WORK_DIR, 'brain')
-        RL_BRAIN_DIR = os.path.join(WORK_DIR, 'rl_brain')
-        STAT_FILE = os.path.join(WORK_DIR, 'stat.npz')
-        FILE_PREFIX = 'model.ckpt'
-
         self.oppo_pool = self.get_mindsets(RL_BRAIN_DIR, FILE_PREFIX)
 
         part_vars = True
@@ -532,16 +535,15 @@ class Gui(object):
         print('vs.', file)
 
         stat = []
-        win1, win2, draw = 0, 0, 0
 
+        episodes = cfg.REINFORCE_PERIOD
 #         n_lose = 0
         iter_n = 200
         i = 0
         while True:
             print('iter:', i)
-
+            win1, win2, draw = 0, 0, 0
             step_counter, explo_counter = 0, 0
-            episodes = 1000
             for _ in range(episodes):
                 s1.stand_for = random.choice([Board.STONE_BLACK, Board.STONE_WHITE])
                 s2.stand_for = Board.oppo(s1.stand_for)

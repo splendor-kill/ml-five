@@ -3,8 +3,10 @@ import random
 import socket
 import struct
 import sys
+import tensorflow as tf
 from threading import Thread
 
+from tentacle.config import cfg
 from tentacle.board import Board
 from tentacle.strategy_dnn import StrategyDNN
 
@@ -61,7 +63,8 @@ def dispose_msg(msg, msg_queue):
         Board.set_board_size(board_size)
         board = Board()
         if s1 is None:
-            s1 = StrategyDNN()
+            file = tf.train.latest_checkpoint(cfg.RL_BRAIN_DIR)
+            s1 = StrategyDNN()  # from_file=file, part_vars=True)
         first_query = True
         who_first = None
         ans = 'START: OK'

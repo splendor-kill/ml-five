@@ -30,7 +30,7 @@ class DCNN3(Pre):
             conv, conv_out_dim = self.create_conv_net(states_pl)
             raw_predictions = self.create_policy_net(conv, conv_out_dim, states_pl)
             legal_filter = tf.reshape(tf.slice(states_pl, [0, 0, 0, 2], [-1, -1, -1, 1]), [-1, Pre.NUM_ACTIONS])
-            self.predictions = (raw_predictions + tf.reduce_min(raw_predictions)) * legal_filter
+            self.predictions = (raw_predictions - tf.reduce_min(raw_predictions) + 0.1 / Pre.NUM_ACTIONS) * legal_filter
 
         with tf.variable_scope("value_net"):
 #             conv, conv_out_dim = self.create_conv_net(states_pl)

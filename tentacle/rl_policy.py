@@ -10,6 +10,7 @@ from scipy.misc import logsumexp
 
 import numpy as np
 import tensorflow as tf
+from tentacle.config import cfg
 from tentacle.board import Board
 from tentacle.value_net import ValueNet
 
@@ -119,11 +120,11 @@ class Brain(object):
             self.actions_pl = tf.placeholder(tf.float32, [None, NUM_ACTIONS])
             self.values_pl = tf.placeholder(tf.float32, [None])
             self.policy_opt_op, self.predict_probs, self.rewards_pl, self.gstep, self.loss = fn_model(self.states_pl, self.actions_pl, self.values_pl)
-            self.summary_op = tf.merge_all_summaries()
+            self.summary_op = tf.summary.merge_all()
             init = tf.initialize_all_variables()
             self.saver = tf.train.Saver(tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope="policy_net"))
 
-        self.summary_writer = tf.train.SummaryWriter(self.summary_dir, self.graph)
+        self.summary_writer = tf.summary.FileWriter(self.summary_dir, self.graph)
         self.sess = tf.Session(graph=self.graph)
         self.sess.run(init)
 
@@ -267,7 +268,7 @@ class Transformer(object):
 
 #         tf.scalar_summary("raw_policy_loss", pg_loss)
 #         tf.scalar_summary("reg_policy_loss", reg_loss)
-        tf.scalar_summary("all_policy_loss", loss)
+        tf.summary.scalar("all_policy_loss", loss)
 
 #         optimizer = tf.train.AdamOptimizer(0.0001)
 #         opt_op = optimizer.minimize(loss)
@@ -313,9 +314,9 @@ class RLPolicy(object):
     NUM_ITERS = 10000
     NEXT_OPPO_ITERS = 500
 
-    WORK_DIR = '/home/splendor/wd2t/fusor'
-    SL_POLICY_DIR = os.path.join(WORK_DIR, 'brain')
-    SL_SUMMARY_DIR = os.path.join(WORK_DIR, 'summary')
+    WORK_DIR = cfg.WORK_DIR
+    SL_POLICY_DIR = cfg.BRAIN_DIR
+    SL_SUMMARY_DIR = cfg.SUMMARY_DIR
     RL_POLICY_DIR_PREFIX = 'brain_rl_'
     RL_POLICY_DIR_PATTERN = re.compile(RL_POLICY_DIR_PREFIX + '(\d+)')
     VALUE_NET_DIR_PREFIX = 'brain_value_'

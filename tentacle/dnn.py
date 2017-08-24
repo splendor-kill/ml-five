@@ -5,9 +5,9 @@ import time
 from datetime import datetime
 # import psutil
 from scipy import ndimage
-
 import numpy as np
 import tensorflow as tf
+from tentacle.config import cfg
 from tentacle.board import Board
 from tentacle.data_set import DataSet
 from tentacle.utils import ReplayMemory
@@ -37,21 +37,21 @@ class Pre(object):
     LEARNING_RATE = 0.001
     NUM_STEPS = 10000000
     DATASET_CAPACITY = 32 * 4000
-    REPLAY_MEMORY_CAPACITY = 1000
 
-    WORK_DIR = '/home/splendor/wd2t/fusor'
-    BRAIN_DIR = os.path.join(WORK_DIR, 'brain')
-    RL_BRAIN_DIR = os.path.join(WORK_DIR, 'rl_brain')
-    BRAIN_CHECKPOINT_FILE = os.path.join(BRAIN_DIR, 'model.ckpt')
-    SUMMARY_DIR = os.path.join(WORK_DIR, 'summary')
-    STAT_FILE = os.path.join(WORK_DIR, 'stat.npz')
-    MID_VIS_FILE = os.path.join(WORK_DIR, 'mid_vis.npz')
-    DATA_SET_DIR = os.path.join(WORK_DIR, 'dataset_gomocup15')
-    DATA_SET_FILE = os.path.join(DATA_SET_DIR, 'train.txt')
-    DATA_SET_TRAIN = os.path.join(DATA_SET_DIR, 'train.txt')
-    DATA_SET_VALID = os.path.join(DATA_SET_DIR, 'validation.txt')
-    DATA_SET_TEST = os.path.join(DATA_SET_DIR, 'test.txt')
-    REPLAY_MEMORY_DIR = os.path.join(WORK_DIR, 'replay')
+    WORK_DIR = cfg.WORK_DIR
+    BRAIN_DIR = cfg.BRAIN_DIR
+    RL_BRAIN_DIR = cfg.RL_BRAIN_DIR
+    BRAIN_CHECKPOINT_FILE = cfg.BRAIN_CHECKPOINT_FILE
+    SUMMARY_DIR = cfg.SUMMARY_DIR
+    STAT_FILE = cfg.STAT_FILE
+    MID_VIS_FILE = cfg.MID_VIS_FILE
+    DATA_SET_DIR = cfg.DATA_SET_DIR
+    DATA_SET_FILE = cfg.DATA_SET_FILE
+    DATA_SET_TRAIN = cfg.DATA_SET_TRAIN
+    DATA_SET_VALID = cfg.DATA_SET_VALID
+    DATA_SET_TEST = cfg.DATA_SET_TEST
+    REPLAY_MEMORY_DIR = cfg.REPLAY_MEMORY_DIR
+    REPLAY_MEMORY_CAPACITY = cfg.REPLAY_MEMORY_CAPACITY
 
     def __init__(self, is_train=True, is_revive=False, is_rl=False):
         self.is_train = is_train
@@ -72,6 +72,7 @@ class Pre(object):
         self.starter_learning_rate = 0.001
         self.rl_global_step = 0
         self.replay_memory_games = ReplayMemory(size=Pre.REPLAY_MEMORY_CAPACITY)
+        self.rl_period_counter = 0
 
     def placeholder_inputs(self):
         h, w, c = self.get_input_shape()
@@ -515,8 +516,12 @@ class Pre(object):
 
         if memo_one_game:
             self.replay_memory_games.append(memo_one_game)  # [-3:]
+            self.rl_period_counter = (self.rl_period_counter + 1) % cfg.REINFORCE_PERIOD
 
         if not self.replay_memory_games.is_full():
+            return
+
+        if self.rl_period_counter != 0:
             return
 
         print('reinforcing...')
@@ -524,15 +529,15 @@ class Pre(object):
 #         now = datetime.now().strftime("%Y%m%d-%H%M%S")
 #         file = os.path.join(Pre.REPLAY_MEMORY_DIR, "replay-{}.npz".format(now,))
 #         self.replay_memory_games.dump(file)
-        self.replay_memory_games.clear()
+#         self.replay_memory_games.clear()
         print('my mind refreshed!')
 
     def rl_train(self, opt_policy_only=True):
         assert self.replay_memory_games.is_full()
         h, w, c = self.get_input_shape()
 
-        minibatch = 10
-        iterations = 2 * Pre.REPLAY_MEMORY_CAPACITY // minibatch
+        minibatch = 64
+        iterations = 8 * Pre.REPLAY_MEMORY_CAPACITY // minibatch
         for i in range(iterations):
             samples = self.replay_memory_games.sample(minibatch)
 

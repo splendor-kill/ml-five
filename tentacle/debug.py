@@ -1,6 +1,8 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
+from tentacle.config import cfg
+
 np.set_printoptions(precision=3)
 
 
@@ -37,7 +39,8 @@ def show_states(m, offset):
 
 
 if __name__ == '__main__':
-    rep_file = '~/fusor/replay/replay-20170810-152827.npz'
+    import os
+    rep_file = os.path.join(cfg.REPLAY_MEMORY_DIR, 'replay-20170810-152827.npz')
     m = load_rep(rep_file)
     offset = 44
     show_states(m, offset)
