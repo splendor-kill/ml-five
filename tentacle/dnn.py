@@ -168,9 +168,10 @@ class Pre(object):
         #                                            self.rl_global_step, 500, 0.96, staircase=True)
 
         x_entropy = tf.nn.softmax_cross_entropy_with_logits(labels=actions_pl, logits=self.predictions)
-#         print('xxx', x_entropy.shape, actions_pl.shape, self.advantages.shape, self.rewards_pl.shape)
+        entropy_loss = -tf.reduce_sum(self.predict_probs * tf.log(self.predict_probs), 1)
+#         print('xxx', x_entropy.shape, actions_pl.shape, self.advantages.shape, self.rewards_pl.shape, entropy_loss.shape)
         reg_loss = tf.reduce_sum(tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES, scope="policy_net"))
-        self.rl_loss = tf.reduce_mean(x_entropy * delta) + 0.001 * reg_loss
+        self.rl_loss = tf.reduce_mean(x_entropy * delta - 0.1 * entropy_loss) + 0.001 * reg_loss
 
 #         self.policy_grads = self.optimizer.compute_gradients(self.loss, self.policy_net_vars)
 #         for i, (grad, var) in enumerate(self.policy_grads):
@@ -515,7 +516,7 @@ class Pre(object):
             memo_one_game.append((state, action, reward))
 
         if memo_one_game:
-            self.replay_memory_games.append(memo_one_game)  # [-3:]
+            self.replay_memory_games.append(memo_one_game)
             self.rl_period_counter = (self.rl_period_counter + 1) % cfg.REINFORCE_PERIOD
 
         if not self.replay_memory_games.is_full():

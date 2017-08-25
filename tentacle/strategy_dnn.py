@@ -80,7 +80,7 @@ class StrategyDNN(Strategy, Auditor):
 
         explored = False
         if self.brain.is_rl:
-            loc1, explored = self.explore_strategy1(probs, legal, rand_loc)
+            loc1, explored = self.explore_strategy2(probs, legal, rand_loc)
             if explored:
                 rand_loc = loc1
                 game.exploration_counter += 1

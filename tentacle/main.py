@@ -536,14 +536,13 @@ class Gui(object):
 
         stat = []
 
-        episodes = cfg.REINFORCE_PERIOD
 #         n_lose = 0
-        iter_n = 200
-        i = 0
-        while True:
+        iter_n = 100
+        for i in range(iter_n):
             print('iter:', i)
             win1, win2, draw = 0, 0, 0
             step_counter, explo_counter = 0, 0
+            episodes = cfg.REINFORCE_PERIOD
             for _ in range(episodes):
                 s1.stand_for = random.choice([Board.STONE_BLACK, Board.STONE_WHITE])
                 s2.stand_for = Board.oppo(s1.stand_for)
@@ -566,8 +565,8 @@ class Gui(object):
                 file = os.path.join(RL_BRAIN_DIR, file)
                 s2.close()
                 s2 = StrategyDNN(is_train=False, is_revive=True, is_rl=False, from_file=file, part_vars=False)
-                n_lose = 0
                 print('vs.', file)
+#                 n_lose = 0
 #             elif win1 < win2:
 #                 n_lose += 1
 #             if n_lose >= 50:
@@ -584,11 +583,6 @@ class Gui(object):
 
             if i % 10 == 0 or i + 1 == iter_n:
                 np.savez(STAT_FILE, stat=np.array(stat))
-
-            i += 1
-
-            if i > iter_n:
-                break
 
         print('rl done. you can try it.')
         self.strategy_1 = self.strategy_2 = s1
