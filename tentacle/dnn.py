@@ -168,17 +168,20 @@ class Pre(object):
         #                                            self.rl_global_step, 500, 0.96, staircase=True)
 
         x_entropy = tf.nn.softmax_cross_entropy_with_logits(labels=actions_pl, logits=self.predictions)
-        entropy_loss = -tf.reduce_sum(self.predict_probs * tf.log(self.predict_probs), 1)
+#         entropy_loss = -tf.reduce_sum(self.predict_probs * tf.log(self.predict_probs), 1)
 #         print('xxx', x_entropy.shape, actions_pl.shape, self.advantages.shape, self.rewards_pl.shape, entropy_loss.shape)
         reg_loss = tf.reduce_sum(tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES, scope="policy_net"))
-        self.rl_loss = tf.reduce_mean(x_entropy * delta - 0.1 * entropy_loss) + 0.001 * reg_loss
+#         self.rl_loss = tf.reduce_mean(x_entropy * delta - 0.001 * entropy_loss) + 0.001 * reg_loss
+        self.rl_loss = tf.reduce_mean(x_entropy * delta) + 0.001 * reg_loss
 
 #         self.policy_grads = self.optimizer.compute_gradients(self.loss, self.policy_net_vars)
 #         for i, (grad, var) in enumerate(self.policy_grads):
 #             if grad is not None:
 #                 self.policy_grads[i] = (-grad * self.advantages, var)
 #         self.rl_policy_opt_op = tf.train.GradientDescentOptimizer(0.0001).apply_gradients(self.policy_grads)
-        self.rl_policy_opt_op = tf.train.GradientDescentOptimizer(0.00001).minimize(self.rl_loss, var_list=self.policy_net_vars)
+
+        vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope='policy_net/dense/*|policy_net/conv2d_8/*')
+        self.rl_policy_opt_op = tf.train.GradientDescentOptimizer(0.00001).minimize(self.rl_loss, var_list=vars)
 
         mean_square_loss = tf.reduce_mean(tf.squared_difference(self.rewards_pl, self.value_outputs))
         value_reg_loss = tf.reduce_sum(tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES, scope="value_net"))
@@ -215,14 +218,14 @@ class Pre(object):
             self.saver = tf.train.Saver(tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope="policy_net"))  # tf.trainable_variables())
             self.saver_all = tf.train.Saver(tf.trainable_variables(), max_to_keep=100)
 
-            init = tf.global_variables_initializer()
+            init_op = tf.group(tf.global_variables_initializer(), tf.local_variables_initializer())
 
             now = datetime.now().strftime("%Y%m%d-%H%M%S")
             logdir = os.path.join(Pre.SUMMARY_DIR, "run-{}".format(now,))
             self.summary_writer = tf.summary.FileWriter(logdir, tf.get_default_graph())
 
             self.sess = tf.Session()
-            self.sess.run(init)
+            self.sess.run(init_op)
             print('Initialized')
 
     def load_from_vat(self, from_file=None, part_vars=True):
@@ -412,9 +415,9 @@ class Pre(object):
         return ndimage.generic_filter(board, lambda r: np.count_nonzero(r == who), footprint=footprint, mode='constant')
 
     def adapt_state(self, board):
-        black = (board == Board.STONE_BLACK).astype(float)
-        white = (board == Board.STONE_WHITE).astype(float)
-        empty = (board == Board.STONE_EMPTY).astype(float)
+        black = (board == Board.STONE_BLACK).astype(np.float32)
+        white = (board == Board.STONE_WHITE).astype(np.float32)
+        empty = (board == Board.STONE_EMPTY).astype(np.float32)
 
         # switch perspective
         bn = np.count_nonzero(black)

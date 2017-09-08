@@ -64,7 +64,7 @@ def dispose_msg(msg, msg_queue):
         board = Board()
         if s1 is None:
             file = tf.train.latest_checkpoint(cfg.RL_BRAIN_DIR)
-            s1 = StrategyDNN()  # from_file=file, part_vars=True)
+            s1 = StrategyDNN(from_file=file, part_vars=True)
         first_query = True
         who_first = None
         ans = 'START: OK'

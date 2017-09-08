@@ -4,3 +4,4 @@ __pycache__
 /tentacle/*.txt
 result
 /tentacle/*.pyc
+.settings

@@ -8,12 +8,12 @@ from builtins import (super)
 class StrategyDNN(Strategy, Auditor):
     def __init__(self, is_train=False, is_revive=True, is_rl=False, from_file=None, part_vars=True):
         super().__init__()
-        self.init_exp = 0.2  # initial exploration prob
+        self.init_exp = 0.3  # initial exploration prob
         self.final_exp = 0.001  # final exploration prob
         self.anneal_steps = 90 * 1000  # N steps for annealing exploration
         self.absorb_progress = 0
         self.exploration = self.init_exp
-        self.temperature = 0.01
+        self.temperature = 0.02
         self.win_ratio = 1.
 
         self.brain = DCNN3(is_train, is_revive, is_rl)
@@ -32,7 +32,7 @@ class StrategyDNN(Strategy, Auditor):
     def board_value(self, board, context):
         pass
 
-    def explore_strategy1(self, probs, legal, top1):
+    def explore_strategy1(self, probs, legal, top1, **kwargs):
         if np.random.rand() < self.exploration:
             top_n = np.argsort(probs)[-2:]
             if legal[top_n[-1]] != 1 or legal[top_n[-2]] != 1:
@@ -42,28 +42,42 @@ class StrategyDNN(Strategy, Auditor):
                 return rand_loc, rand_loc != top1
         return top1, False
 
-    def explore_strategy2(self, probs, legal, top1):
-#         if self.win_ratio is not None:
-#             if self.win_ratio > 1.1:
-#                 self.temperature += 0.002
-#             elif self.win_ratio < 1/1.1:
-#                 self.temperature -= 0.002
+    def explore_strategy2(self, probs, legal, top1, **kwargs):
+        if self.win_ratio is not None:
+            if self.win_ratio > 1.1:
+                self.temperature += 0.002
+            elif self.win_ratio < 1/1.1:
+                self.temperature -= 0.002
         self.temperature = min(max(0.001, self.temperature), 100)
         probs = attemper(probs, self.temperature, legal)
         rand_loc = np.random.choice(Board.BOARD_SIZE_SQ, 1, p=probs)
 #         rand_loc = np.random.multinomial(1, probs).argmax()
         return rand_loc, rand_loc != top1
 
-    def explore_strategy3(self, probs, legal, top1):
+    def explore_strategy3(self, probs, legal, top1, **kwargs):
         if np.random.rand() < self.exploration:
             rand_loc = np.random.choice(np.where(legal == 1)[0], 1)[0]
             return rand_loc, rand_loc != top1
         return top1, False
 
-    def explore_strategy4(self, probs, legal, top1):
+    def explore_strategy4(self, probs, legal, top1, **kwargs):
         '''
-            stat action distributin, encourage small action move first
+            stat action distributin, encourage action with small prob move first
         '''
+        return top1, False
+
+    def explore_strategy5(self, probs, legal, top1, **kwargs):
+        '''
+            one chance of explore per game
+        '''
+        game = kwargs['game']
+
+        if game.exploration_counter == 0:
+            NUM_ACTIONS = Board.BOARD_SIZE_SQ
+            x = np.random.randint(NUM_ACTIONS - game.step_counter)
+            if x < 2:
+                rand_loc = np.random.choice(np.where(legal == 1)[0], 1)[0]
+                return rand_loc, rand_loc != top1
         return top1, False
 
     def preferred_move(self, board, game=None):
@@ -80,7 +94,7 @@ class StrategyDNN(Strategy, Auditor):
 
         explored = False
         if self.brain.is_rl:
-            loc1, explored = self.explore_strategy2(probs, legal, rand_loc)
+            loc1, explored = self.explore_strategy3(probs, legal, rand_loc, game=game)
             if explored:
                 rand_loc = loc1
                 game.exploration_counter += 1
@@ -141,5 +155,13 @@ class StrategyDNN(Strategy, Auditor):
 
     def annealExploration(self):
         ratio = max((self.anneal_steps - self.absorb_progress) / float(self.anneal_steps), 0)
-        self.exploration = (self.init_exp - self.final_exp) * ratio + self.final_exp
-#         self.exploration = 0.03
+#         self.exploration = (self.init_exp - self.final_exp) * ratio + self.final_exp
+        if self.win_ratio is not None and self.absorb_progress % 100 == 0:
+            if self.win_ratio > 1.1:
+                self.exploration += 0.002
+                self.exploration = min(self.exploration, self.init_exp)
+            elif self.win_ratio < 1/1.1:
+                self.exploration -= 0.002
+                self.exploration = max(self.exploration, self.final_exp)
+        if self.absorb_progress % 500 == 0:
+            print('exploration: %.4f, temperature: %.4f' % (self.exploration, self.temperature))

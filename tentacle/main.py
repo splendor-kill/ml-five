@@ -511,7 +511,7 @@ class Gui(object):
         plt.title('press F3 start')
 
 
-    def reinforce(self, resume=False):
+    def reinforce(self, resume=True):
         self.oppo_pool = self.get_mindsets(RL_BRAIN_DIR, FILE_PREFIX)
 
         part_vars = True

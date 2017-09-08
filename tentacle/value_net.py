@@ -29,10 +29,10 @@ class ValueNet(object):
         with self.graph.as_default():
             self.states_pl, self.rewards_pl = self.placeholder_inputs()
             self.value_outputs, self.opt_op, self.global_step, self.mse = self.model(self.states_pl, self.rewards_pl)
-            self.summary_op = tf.merge_all_summaries()
+            self.summary_op = tf.summary.merge_all()
             init = tf.initialize_all_variables()
             self.saver = tf.train.Saver(tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope="value_net"))
-        self.summary_writer = tf.train.SummaryWriter(self.summary_dir, self.graph)
+        self.summary_writer = tf.summary.FileWriter(self.summary_dir, self.graph)
         self.sess = tf.Session(graph=self.graph)
         self.sess.run(init)
 
@@ -105,9 +105,9 @@ class ValueNet(object):
         optimizer = tf.train.AdamOptimizer(0.0001)
         value_opt_op = optimizer.minimize(value_loss, global_step=global_step)
 
-        tf.scalar_summary("raw_value_loss", mean_square_loss)
-        tf.scalar_summary("reg_value_loss", value_reg_loss)
-        tf.scalar_summary("all_value_loss", value_loss)
+        tf.summary.scalar("raw_value_loss", mean_square_loss)
+        tf.summary.scalar("reg_value_loss", value_reg_loss)
+        tf.summary.scalar("all_value_loss", value_loss)
         return value_outputs, value_opt_op, global_step, mean_square_loss
 
     def get_state_values(self, states, players):
