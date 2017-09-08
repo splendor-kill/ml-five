@@ -1,24 +1,19 @@
 from builtins import (super)
 from datetime import datetime
-import gc
 import os
 import time
 
 import numpy as np
 import tensorflow as tf
 from tentacle.board import Board
-from tentacle.data_set import DataSet
-from tentacle.dnn import Pre
-from tentacle.ds_loader import DatasetLoader
 from tentacle.config import cfg
+from tentacle.dnn import Pre
 
 
 class DCNN3(Pre):
     def __init__(self, is_train=True, is_revive=False, is_rl=False):
         super().__init__(is_train, is_revive, is_rl)
-        self.loader_train = DatasetLoader(Pre.DATA_SET_TRAIN)
-        self.loader_valid = DatasetLoader(Pre.DATA_SET_VALID)
-        self.loader_test = DatasetLoader(Pre.DATA_SET_TEST)
+        self.test_stat = None
 
     def placeholder_inputs(self):
         h, w, c = self.get_input_shape()
@@ -126,71 +121,18 @@ class DCNN3(Pre):
 
         return dense
 
-    def forge(self, row):
-        board = row[:Board.BOARD_SIZE_SQ]
-        image, _ = self.adapt_state(board)
-
-        visit = row[Board.BOARD_SIZE_SQ::2]
-#         visit[visit == 0] = 1
-#         win = row[Board.BOARD_SIZE_SQ+1::2]
-        win_rate = visit
-        s = np.sum(win_rate)
-        win_rate /= s
-        return image, win_rate
-
-    def adapt(self, filename):
-        # proc = psutil.Process(os.getpid())
-        gc.collect()
-        # mem0 = proc.memory_info().rss
-
-        if self.ds_train is not None and not self.loader_train.is_wane:
-            self.ds_train = None
-        if self.ds_valid is not None and not self.loader_valid.is_wane:
-            self.ds_valid = None
-        if self.ds_test is not None and not self.loader_test.is_wane:
-            self.ds_test = None
-
-        gc.collect()
-
-        # mem1 = proc.memory_info().rss
-        # print('gc(M):', (mem1 - mem0) / 1024 ** 2)
-
-        h, w, c = self.get_input_shape()
-
-        def f(dat):
-            ds = []
-            for row in dat:
-                s, a = self.forge(row)
-                ds.append((s, a))
-            ds = np.array(ds)
-            return DataSet(np.vstack(ds[:, 0]).reshape((-1, h, w, c)), np.vstack(ds[:, 1]))
-
-        if self.ds_train is None:
-            ds_train, self._has_more_data = self.loader_train.load(Pre.DATASET_CAPACITY)
-            self.ds_train = f(ds_train)
-        if self.ds_valid is None:
-            ds_valid, _ = self.loader_valid.load(Pre.DATASET_CAPACITY // 2)
-            self.ds_valid = f(ds_valid)
-        if self.ds_test is None:
-            ds_test, _ = self.loader_test.load(Pre.DATASET_CAPACITY // 2)
-            self.ds_test = f(ds_test)
-
-        print(self.ds_train.images.shape, self.ds_train.labels.shape)
-        print(self.ds_valid.images.shape, self.ds_valid.labels.shape)
-        print(self.ds_test.images.shape, self.ds_test.labels.shape)
-
     def get_input_shape(self):
         return Board.BOARD_SIZE, Board.BOARD_SIZE, Pre.NUM_CHANNELS
-
-    def mid_vis(self, feed_dict):
-        pass
 
     def ready_for_input_from_tfrecords(self, files, batch_size, num_epochs=None, capacity=2000):
         filename_queue = tf.train.string_input_producer(files, num_epochs=num_epochs)
 
-        read_features = {'state': tf.FixedLenFeature([Board.BOARD_SIZE_SQ], tf.int64),
-                         'actions': tf.FixedLenFeature([Board.BOARD_SIZE_SQ], tf.float32),
-                        }
+        if cfg.DATA_SET_SUFFIX[3:7] == 'dist':
+            read_features = {'state': tf.FixedLenFeature([Board.BOARD_SIZE_SQ], tf.int64),
+                             'actions': tf.FixedLenFeature([Board.BOARD_SIZE_SQ], tf.float32)}
+        else:
+            read_features = {'state': tf.FixedLenFeature([Board.BOARD_SIZE_SQ], tf.int64),
+                             'action': tf.FixedLenFeature([], tf.int64)}
 
         reader = tf.TFRecordReader()
         _, serialized_example = reader.read(filename_queue)
@@ -198,7 +140,12 @@ class DCNN3(Pre):
 
         s = features['state']
         s = tf.cast(s, tf.float32)
-        a_dist = features['actions']
+        if 'actions' in features:
+            a_dist = features['actions']
+        elif 'action' in features:
+            a_dist = tf.one_hot(features['action'], Board.BOARD_SIZE_SQ, dtype=tf.float32)
+        else:
+            raise ValueError('unknown feature')
 
         min_after_dequeue = capacity
         capacity = min_after_dequeue + 3 * batch_size
@@ -217,8 +164,8 @@ class DCNN3(Pre):
         for _ in range(cfg.SAMPLE_BATCH_NUM):
             feed_dict = self.fill_feed_dict(data_set, states_pl, actions_pl, batch_size)
             true_count += self.sess.run(eval_correct, feed_dict=feed_dict)
-        precision = true_count / (num_examples or 1)
-        return precision
+        accuracy = true_count / (num_examples or 1)
+        return accuracy
 
     def fill_feed_dict(self, data_set, states_pl, actions_pl, batch_size=None):
         batch_size = batch_size or Pre.BATCH_SIZE
@@ -254,17 +201,17 @@ class DCNN3(Pre):
             self.model(self.states_pl, self.actions_pl)
 
             with tf.name_scope('train_queue_runner'):
-                ds_file = os.path.join(cfg.DATA_SET_DIR, 'train_a_dist.tfrecords')
+                ds_file = os.path.join(cfg.DATA_SET_DIR, 'train' + cfg.DATA_SET_SUFFIX)
                 self.state_batch_train, self.action_batch_train = self.ready_for_input_from_tfrecords([ds_file],
                                                                                                       cfg.FEED_BATCH_SIZE,
                                                                                                       num_epochs=cfg.TRAIN_EPOCHS,
                                                                                                       capacity=cfg.TRAIN_QUEUE_CAPACITY)
-                ds_file = os.path.join(cfg.DATA_SET_DIR, 'validation_a_dist.tfrecords')
+                ds_file = os.path.join(cfg.DATA_SET_DIR, 'validation' + cfg.DATA_SET_SUFFIX)
                 self.state_batch_validation, self.action_batch_validation = self.ready_for_input_from_tfrecords([ds_file],
                                                                                                                 cfg.FEED_BATCH_SIZE,
                                                                                                                 capacity=cfg.VALIDATE_QUEUE_CAPACITY)
             with tf.name_scope('test_queue_runner'):
-                ds_file = os.path.join(cfg.DATA_SET_DIR, 'test_a_dist.tfrecords')
+                ds_file = os.path.join(cfg.DATA_SET_DIR, 'test' + cfg.DATA_SET_SUFFIX)
                 self.state_batch_test, self.action_batch_test = self.ready_for_input_from_tfrecords([ds_file],
                                                                                                     cfg.FEED_BATCH_SIZE,
                                                                                                     num_epochs=1,
@@ -300,7 +247,12 @@ class DCNN3(Pre):
         if not self.is_train:
             return
 
+        prev_time = 0
         def work1(coord, cnt):
+            nonlocal prev_time
+            if cnt == 0:
+                prev_time = time.time()
+
             feed_dict = self.fill_feed_dict('train', self.states_pl, self.actions_pl)
             _, loss = self.sess.run([self.opt_op, self.loss], feed_dict=feed_dict)
             self.loss_window.extend(loss)
@@ -313,29 +265,34 @@ class DCNN3(Pre):
 
             if cnt != 0 and cnt % 1000 == 0:
                 self.saver.save(self.sess, Pre.BRAIN_CHECKPOINT_FILE, global_step=self.gstep)
-                start_time = time.time()
+
                 train_accuracy = self.do_eval(self.eval_correct, self.states_pl, self.actions_pl, 'train')
                 validation_accuracy = self.do_eval(self.eval_correct, self.states_pl, self.actions_pl, 'validation')
                 self.stat.append((self.gstep, train_accuracy, validation_accuracy, 0.))
                 self.gap = train_accuracy - validation_accuracy
-                duration = time.time() - start_time
+                now = time.time()
+                duration = now - prev_time
+                prev_time = now
                 avg_loss = self.loss_window.get_average()
                 print('iter: %d, loss: %.3f, acc_train: %.3f, acc_valid: %.3f, time cost: %.3f sec' %
                       (cnt, avg_loss, train_accuracy, validation_accuracy, duration))
                 if avg_loss < 1.0:
                     coord.request_stop()
 
-        with self.sess.as_default():
-            self.work_work('train_q_runner', work1)
+        self.work_work('train_q_runner', work1)
 
-#         print('testing...')
-#         def work2(coord, cnt):
-#             pass
-#         self.work_work('test_q_runner', work2)
+        print('testing...')
+        self.test_stat = [0, 0]  # [correct, total]
+        def work2(coord, cnt):
+            feed_dict = self.fill_feed_dict('test', self.states_pl, self.actions_pl, batch_size=cfg.FEED_BATCH_SIZE)
+            self.test_stat[0] += self.sess.run(self.eval_correct, feed_dict=feed_dict)
+            self.test_stat[1] += cfg.FEED_BATCH_SIZE
+
+        self.work_work('test_q_runner', work2)
 
     def work_work(self, qs, func):
         coord = tf.train.Coordinator()
-        threads = tf.train.start_queue_runners(coord=coord, collection=qs)
+        threads = tf.train.start_queue_runners(self.sess, coord=coord, collection=qs)
 
         try:
             start_time = time.time()
@@ -346,6 +303,8 @@ class DCNN3(Pre):
         except tf.errors.OutOfRangeError:
             duration = time.time() - start_time
             print('count: %d (%.3f sec)' % (cnt, duration))
+            if self.test_stat is not None:
+                print('test accuracy: %.3f' % (self.test_stat[0] / self.test_stat[1],))
             coord.request_stop()
         finally:
             coord.request_stop()
