@@ -180,7 +180,7 @@ class Pre(object):
 #                 self.policy_grads[i] = (-grad * self.advantages, var)
 #         self.rl_policy_opt_op = tf.train.GradientDescentOptimizer(0.0001).apply_gradients(self.policy_grads)
 
-        vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope='policy_net/dense/*|policy_net/conv2d_8/*')
+        vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope='policy_net/dense/*|policy_net/conv2d_5/*')
         self.rl_policy_opt_op = tf.train.GradientDescentOptimizer(0.00001).minimize(self.rl_loss, var_list=vars)
 
         mean_square_loss = tf.reduce_mean(tf.squared_difference(self.rewards_pl, self.value_outputs))

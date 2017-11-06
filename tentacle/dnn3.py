@@ -29,7 +29,7 @@ class DCNN3(Pre):
             self.predictions = (raw_predictions - tf.reduce_min(raw_predictions) + 0.1 / Pre.NUM_ACTIONS) * legal_filter
 
         with tf.variable_scope("value_net"):
-#             conv, conv_out_dim = self.create_conv_net(states_pl)
+            # conv, conv_out_dim = self.create_conv_net(states_pl)
             self.value_outputs = self.create_value_net(conv, conv_out_dim, states_pl)
 
         self.policy_net_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope="policy_net")
@@ -47,6 +47,11 @@ class DCNN3(Pre):
 #         tf.summary.scalar("illegal_penalty", illegal_penalty)
 
         self.optimizer = tf.train.AdamOptimizer(0.0001)
+
+#         update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
+#         with tf.control_dependencies(update_ops):
+#             self.opt_op = self.optimizer.minimize(self.loss)
+
         self.opt_op = self.optimizer.minimize(self.loss)
 
         self.predict_probs = tf.nn.softmax(self.predictions)
@@ -59,7 +64,6 @@ class DCNN3(Pre):
 
         self.rl_op(actions_pl)
 
-
     def bn_conv(self, conv, offset, scale, convolutional=True):
         axes = [0, 1, 2] if convolutional else [0]
         mean, variance = tf.nn.moments(conv, axes)
@@ -67,9 +71,17 @@ class DCNN3(Pre):
 
     def create_conv_net(self, states_pl):
         inputs = states_pl
-        for _ in range(6):
+
+        inputs = tf.layers.conv2d(inputs=inputs,
+                                  filters=46,
+                                  kernel_size=[5, 5],
+                                  padding="same",
+                                  activation=tf.nn.relu,
+                                  kernel_regularizer=tf.nn.l2_loss)
+
+        for _ in range(5):
             conv = tf.layers.conv2d(inputs=inputs,
-                                    filters=32,
+                                    filters=192,
                                     kernel_size=[3, 3],
                                     padding="same",
                                     activation=tf.nn.relu,
@@ -77,27 +89,8 @@ class DCNN3(Pre):
                                     )
             inputs = conv
 
-        conv_7 = tf.layers.conv2d(inputs=inputs,
-                                filters=32,
-                                kernel_size=[1, 1],
-                                padding="same",
-                                activation=tf.nn.relu,
-                                kernel_regularizer=tf.nn.l2_loss)
-        conv_8 = tf.layers.conv2d(inputs=conv_7,
-                                filters=32,
-                                kernel_size=[3, 3],
-                                padding="same",
-                                activation=tf.nn.relu,
-                                kernel_regularizer=tf.nn.l2_loss)
-        conv_9 = tf.layers.conv2d(inputs=conv_8,
-                                filters=256,
-                                kernel_size=[1, 1],
-                                padding="same",
-                                activation=tf.nn.relu,
-                                kernel_regularizer=tf.nn.l2_loss)
-
-        conv_out_dim = conv_9.get_shape()[1:].num_elements()
-        conv_out = tf.reshape(conv_9, [-1, conv_out_dim])
+        conv_out_dim = inputs.get_shape()[1:].num_elements()
+        conv_out = tf.reshape(inputs, [-1, conv_out_dim])
 
         return conv_out, conv_out_dim
 
@@ -248,6 +241,7 @@ class DCNN3(Pre):
             return
 
         prev_time = 0
+
         def work1(coord, cnt):
             nonlocal prev_time
             if cnt == 0:
@@ -283,6 +277,7 @@ class DCNN3(Pre):
 
         print('testing...')
         self.test_stat = [0, 0]  # [correct, total]
+
         def work2(coord, cnt):
             feed_dict = self.fill_feed_dict('test', self.states_pl, self.actions_pl, batch_size=cfg.FEED_BATCH_SIZE)
             self.test_stat[0] += self.sess.run(self.eval_correct, feed_dict=feed_dict)

@@ -577,7 +577,7 @@ class Gui(object):
                 win1_r = win1 / total
                 win2_r = win2 / total
                 draw_r = draw / total
-                print("iter:%d, win: %.3f, loss: %.3f, tie: %.3f, t: %.3f" % (i, win1_r, win2_r, draw_r, s1.temperature))
+                print("iter:%d, win: %.3f, lose: %.3f, draw: %.3f, t: %.3f" % (i, win1_r, win2_r, draw_r, s1.temperature))
                 stat.append([win1_r, win2_r, draw_r])
                 print('avg. steps[%f], avg. explos[%f]' % (step_counter / episodes, explo_counter / episodes))
 
