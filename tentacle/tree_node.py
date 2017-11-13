@@ -50,7 +50,7 @@ class TreeNode2(object):
 #         self._W = 0  # total action value
         self._Q = 0  # mean action value
         self._P = prior_prob
-        self._U = prior_prob # UCB
+        self._U = prior_prob  # UCB
 
     def select(self):
         return max(self._children.items(), key=lambda act_node: act_node[1].get_value())
@@ -73,6 +73,19 @@ class TreeNode2(object):
 
     def get_value(self):
         return self._Q + self._U
+
+    def get_pi(self, temperature=1, pi_shape):
+        # N(s0, a)^t / sum_b(N(s0, b)^t)
+        assert temperature != 0
+        assert bool(self._children)
+
+        all_N = np.array([node._N for node in self._children.values()])
+        heat = np.power(all_N, 1. / temperature)
+        pi = heat / heat.sum()
+        inclue_all = np.zeros(pi_shape)
+        for action, p in zip(self._children.keys(), pi):
+            inclue_all[action] = p
+        return inclue_all
 
     def is_leaf(self):
         return not self._children

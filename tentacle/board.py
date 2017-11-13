@@ -51,10 +51,12 @@ class Board(object):
         Board.BOARD_SIZE_SQ = Board.BOARD_SIZE ** 2
 
     def move(self, x, y, v):
+        index = np.ravel_multi_index((x, y), (Board.BOARD_SIZE, Board.BOARD_SIZE))
+        self.place_down(index, v)
+
+    def place_down(self, index, v):
         if v != Board.STONE_BLACK and v != Board.STONE_WHITE:
             raise Exception('illegal arg v[%d]' % (v))
-
-        index = np.ravel_multi_index((x, y), (Board.BOARD_SIZE, Board.BOARD_SIZE))
         if index >= Board.BOARD_SIZE_SQ or self.stones[index] != Board.STONE_EMPTY:
             raise Exception('cannot move here')
         self.stones[index] = v

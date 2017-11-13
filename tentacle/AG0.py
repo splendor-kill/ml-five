@@ -1,23 +1,27 @@
+import copy
 from datetime import datetime
 from multiprocessing import Queue
 import os
 import time
 
 import numpy as np
+import pandas as pd
 import tensorflow as tf
+from tentacle.board import Board
 from tentacle.config import cfg
 from tentacle.game import Game
 from tentacle.tree_node import TreeNode2
+from tentacle.utils import ReplayMemory
 from tentacle.utils import attemper
-from tentacle.board import Board
 
 
-N_RES_BLOCKS = 19 
+N_RES_BLOCKS = 19
 N_FILTERS = 256
 N_ACTIONS = 255
 N_GAMES_EVAL = 400
 N_GAMES_TRAIN = 25000
 N_SIMS = 1600
+N_STEPS_EXPLORE = 10
 
 
 def get_input_shape():
@@ -39,7 +43,7 @@ def squad(x, filters, kernel_size, training):
                      kernel_regularizer=tf.nn.l2_loss)
     inputs = tf.layers.batch_normalization(inputs=inputs,
                                            training=training)
-    inputs = tf.nn.relu(inputs)
+    return tf.nn.relu(inputs)
 
 
 def residual_block(x, training):
@@ -79,6 +83,10 @@ def model_fn(s, training, n_blocks, z, pi):
         inputs = squad(bottleneck, filters=2,
                        kernel_size=[1, 1],
                        training=training)
+
+        conv_out_dim = inputs.get_shape()[1:].num_elements()
+        inputs = tf.reshape(inputs, [-1, conv_out_dim])
+
         preds = tf.layers.dense(inputs=inputs,
                                 units=N_ACTIONS,
                                 kernel_regularizer=tf.nn.l2_loss)
@@ -88,6 +96,10 @@ def model_fn(s, training, n_blocks, z, pi):
         inputs = squad(bottleneck, filters=1,
                        kernel_size=[1, 1],
                        training=training)
+
+        conv_out_dim = inputs.get_shape()[1:].num_elements()
+        inputs = tf.reshape(inputs, [-1, conv_out_dim])
+
         inputs = tf.layers.dense(inputs=inputs,
                                 units=256,
                                 kernel_regularizer=tf.nn.l2_loss)
@@ -122,69 +134,26 @@ class MCTS2(object):
         self._c_puct = 5
         self.n_thr = 40
         self.n_vl = 3
-        self._rollout_limit = 80
         self._L = 5
         self._n_playout = 50
 
         self._root = TreeNode2(None, 1.0)
         self._nn_fn = nn_fn
 
-    def _playout(self, state, leaf_depth):
-        # start_time = time.time()
-        node = self._root
-
-        print('exploit')
-        for i in range(leaf_depth):
-            legal_states, _, legal_moves = Game.possible_moves(state)
-#             print(state)
-#             print(legal_moves)
-#             print('depth:', i, 'legal moves:', legal_moves.shape)
-
-            if len(legal_states) == 0:
-                break
-            if node.is_leaf():
-                action_probs, _ = self._nn(state)
-                if len(action_probs) == 0:
-                    break
-#                 print('num of action-prob:', len(action_probs))
-                node.expand(action_probs)
-
-#             print('num of children:', len(node._children))
-            best_move, node = node.select()
-            idx = np.where(legal_moves == best_move)[0]
-            if idx.size == 0:
-                print('depth:', i, idx)
-                print('best move:', best_move)
-#                 print(legal_moves)
-                p = node.parent
-                for a, s1 in p.children.items():
-                    print('  ', a, s1.get_value())
-
-            assert idx.size == 1
-            state = legal_states[idx[0]]
-
-#         duration = time.time() - start_time
-#         print('time cost:', duration)
-        v = self._value(state) if self._lmbda < 1 else 0
-#         z = self._evaluate_rollout(state, self._rollout_limit) if self._lmbda > 0 else 0
-#         leaf_value = (1 - self._lmbda) * v + self._lmbda * z
-# 
-#         node.update_recursive(leaf_value, self._c_puct)
-    
     def sim_once(self, s0):
-        s = s0
+        s = copy.deepcopy(s0)
         node = self._root
         while True:
-            legal_states, _, legal_moves = Game.possible_moves(s)
+            legal_states, who, legal_moves = Game.possible_moves(s)
             if len(legal_states) == 0:
                 return None, None
-            
+
             if node.is_leaf():
                 return node, s
             else:
                 move, node = node.select()
-                s = s.next_move(move)
-                
+                s = self.make_a_move(s, move, who)
+
     def sim_many(self, s0, n):
         leaf_nodes = []
         leaf_states = []
@@ -192,33 +161,32 @@ class MCTS2(object):
             node, state = self.sim_once(s0)
             if node is not None:
                 leaf_nodes.append(node)
-                leaf_states.append(state)
-        pvs = self._nn_fn(leaf_states)
-        for node, pv in zip(leaf_nodes, pvs):
-            p, v = pv[:-1], pv[-1]
-            node.expand(p)
-            node.backup(v)
-    
-    def get_pi(self, s0, theta, n_sims):
-        '''return a distribution through many sims'''
-        for _ in range(n_sims):
-            self.sim(s0, theta)
-        return self._root.get_value()
+                leaf_states.append(state.stones)
+        leaf_states = np.array(leaf_states)
+        ps, vs = self._nn_fn(leaf_states)
+        for node, s, p, v in zip(leaf_nodes, leaf_states, ps, vs):
+            legal_actions = np.where(s == Board.STONE_EMPTY)[0]
+            legal_priors = p[legal_actions]
+            node.expand(zip(legal_actions, legal_priors))
+            node.update_recursive(v, self._c_puct)
+
+    def make_a_move(self, board, move, who):
+        loc = np.unravel_index(move, (Board.BOARD_SIZE, Board.BOARD_SIZE))
+        board.move(loc[0], loc[1], who)
+        return board
+
+    def get_pi_and_best_move(self, t=1):
+        ''' get the prob dist and get best move according the dist
         
-    def get_move(self, s, t):
-        ''' get a move on state s
+        assume that it is called sim_many before this function
         Args:
-            s: state
-            t: temperature            
+            t: temperature
         Return:
             a: the preferred action
         '''
-        for n in range(self._n_playout):
-            self._playout(s, self._L)
-
-        prob_dist = list()
-        prob_dist = attemper()
-        return max(self._root._children.items(), key=lambda act_node: act_node[1]._n_visits)[0]
+        pi = self._root.get_pi(t, N_ACTIONS)
+        a = np.random.choice(N_ACTIONS, size=1, p=pi)
+        return pi, a
 
     def update_with_move(self, last_move):
         if last_move in self._root._children:
@@ -228,59 +196,23 @@ class MCTS2(object):
             self._root = TreeNode2(None, 1.0)
 
 
-def optimize_theta():
-    pass
-#     while True:
-#         mini_batch = sample 2048 from 500K
-#         nn.train(mini_batch)
-#         i += 1
-#         if i % 1000 == 0:
-#             save_checkpoint()
-
-
-def eval_theta():
-    pass
-    # cur_best vs. each new checkpoint
-#     for _ in range(N_GAMES_EVAL):
-#         g = Game()
-#         while not g.is_over():
-#             whose_turn = g.whose_turn()
-#             pi = get_pi(g.state, whose_turn, N_SIMS)
-#             move = make_decision(pi, t->0)
-#             g.step(move)
-#         stat win or lose
-#     if win_rate > 55%:
-#         new best is born
-
-
-def self_play():
-    # generate data with cur_best
-    pass
-#     for _ in range(N_GAMES_TRAIN):
-#         g = Game()
-#         while not g.is_over():
-#             pi = get_pi(g.state, cur_best, N_SIMS)
-#             move = make_decision(pi, t)
-#             g.step(move)
-#             memo(s, pi)
-#         if over or resign:
-#             update_memo(z | s, pi)
-
 
 class AG0(object):
-    def __init__(self, input_fn, model_fn):
+    def __init__(self, input_fn, model_fn, cur_best_dir):
         self._input_fn = input_fn
         self._model_fn = model_fn
-    
+        self._mcts = MCTS2(self.get_prior_probs_and_value)
+        self.cur_best_dir = cur_best_dir
+        self.replay_memory_games = ReplayMemory(size=cfg.REPLAY_MEMORY_CAPACITY)
+
     def prepare(self, training=True):
         with tf.Graph().as_default():
-            self.states_pl, self.actions_pl = self._input_fn()
-            self._model_fn(self.states_pl, training, N_RES_BLOCKS, self.values_pl, self.actions_pl)
+            self.states_pl, self.actions_pl, self.values_pl = self._input_fn()
+            self.train_op, self.pred_probs_t, self.value_t = self._model_fn(self.states_pl, training, N_RES_BLOCKS, self.values_pl, self.actions_pl)
 
             self.summary_op = tf.summary.merge_all()
 
-            self.saver = tf.train.Saver(tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope="policy_net"))  # tf.trainable_variables())
-            self.saver_all = tf.train.Saver(tf.trainable_variables(), max_to_keep=100)
+            self.saver = tf.train.Saver(tf.trainable_variables())
 
             init_op = tf.group(tf.global_variables_initializer(), tf.local_variables_initializer())
 
@@ -291,23 +223,126 @@ class AG0(object):
             self.sess = tf.Session()
             self.sess.run(init_op)
             print('Initialized')
-    
-    def get_pv(self, states):
-        h, w, c = self.get_input_shape()
-        feed_dict = {
-            self.states_pl: states.reshape(1, -1).reshape((-1, h, w, c)),
-        }
-        return self.sess.run([self.predict_probs, self.predictions], feed_dict=feed_dict)
-       
-    
 
-def test():
+    def adapt_state(self, board):
+        black = (board == Board.STONE_BLACK).astype(np.float32)
+        white = (board == Board.STONE_WHITE).astype(np.float32)
+        empty = (board == Board.STONE_EMPTY).astype(np.float32)
+
+        # switch perspective
+        bn = np.count_nonzero(black)
+        wn = np.count_nonzero(white)
+        if bn != wn:  # if it is white turn, switch it
+            black, white = white, black
+
+        # (cur_player, next_player, legal)
+        image = np.dstack((black, white, empty)).ravel()
+        legal = empty.astype(bool)
+        return image, legal
+
+    def get_prior_probs_and_value(self, states):
+        h, w, c = get_input_shape()
+
+        reshaped_states = []
+        for s in states:
+            # TODO: dihedral transform
+            s1, _ = self.adapt_state(s)
+            reshaped_states.append(s1)
+        states_feed = np.array(reshaped_states)
+        states_feed = states_feed.reshape((-1, h, w, c))
+        feed_dict = {
+            self.states_pl: states_feed
+        }
+        return self.sess.run([self.pred_probs_t, self.value_t], feed_dict=feed_dict)
+
+    def load_from_vat(self, brain_dir):
+        ckpt = tf.train.get_checkpoint_state(brain_dir)
+        if ckpt and ckpt.model_checkpoint_path:
+            self.saver.restore(self.sess, ckpt.model_checkpoint_path)
+#             a = ckpt.model_checkpoint_path.rsplit('-', 1)
+#             self.gstep = int(a[1]) if len(a) > 1 else 1
+
+    def self_play(self):
+        # generate data with cur_best
+        self.load_from_vat(self.cur_best_dir)
+
+        for _ in range(N_GAMES_TRAIN):
+            board = Board()
+            assert (board.stones == Board.STONE_EMPTY).any()
+            memo_s = []
+            memo_pi = []
+            winner = Board.STONE_EMPTY
+            step = 0
+            whose_persp = board.whose_turn_now()
+            cur_player = whose_persp
+            while True:
+                self._mcts.sim_many(board, N_SIMS)
+                t = 1 if step < N_STEPS_EXPLORE else 1e-9
+                step += 1
+                pi, move = self._mcts.get_pi_and_best_move(t)
+                memo_s.append(board)
+                memo_pi.append(pi)
+                new_board = copy.deepcopy(board)
+                new_board.place_down(move, cur_player)
+                over, winner, _ = new_board.is_over(board)
+                if over:
+                    break
+                if self.resign(board, pi):
+                    break
+                board = new_board
+
+            if winner != Board.STONE_EMPTY:
+                reward = winner == whose_persp
+                memo_z = [0] * len(memo_s)
+                memo_z[-1::-2] = reward
+                memo_z[-1::-2] = -reward
+                self.memo(memo_s, memo_pi, memo_z)
+
+    def resign(self, pi):
+        return False
+
+    def memo(self, s, pi, z):
+        merged = np.hstack([s, pi, z.reshape(-1, 1)])
+        self.replay_memory_games.append(merged)
+
+    def optimize_theta(self):
+        pass
+    #     while True:
+    #         mini_batch = sample 2048 from 500K
+    #         nn.train(mini_batch)
+    #         i += 1
+    #         if i % 1000 == 0:
+    #             save_checkpoint()
+
+
+    def eval_theta(self):
+        pass
+        # cur_best vs. each new checkpoint
+    #     for _ in range(N_GAMES_EVAL):
+    #         g = Game()
+    #         while not g.is_over():
+    #             whose_turn = g.whose_turn()
+    #             pi = get_pi(g.state, whose_turn, N_SIMS)
+    #             move = make_decision(pi, t->0)
+    #             g.step(move)
+    #         stat win or lose
+    #     if win_rate > 55%:
+    #         new best is born
+
+
+
+
+
+def test_sim_many():
     zero = AG0(input_fn, model_fn)
     zero.prepare()
-    
-    mcts = MCTS2(zero.get_pv)
-    mcts.sim_many(N_SIMS)
-                  
+
+    s0 = Board.rand_generate_a_position()
+    zero._mcts.sim_many(s0, N_SIMS)
+
 
 if __name__ == '__main__':
-    test()
+#     test_sim_many()
+    zero = AG0(input_fn, model_fn, cfg.BRAIN_DIR)
+    zero.prepare()
+    zero.self_play()

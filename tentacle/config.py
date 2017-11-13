@@ -4,7 +4,7 @@ cfg = type('', (), {})()
 
 cfg.WORK_DIR = '/home/splendor/wd2t/fusor'
 
-cfg.BRAIN_DIR = os.path.join(cfg.WORK_DIR, 'brain')
+cfg.BRAIN_DIR = os.path.join(cfg.WORK_DIR, 'zero')
 cfg.RL_BRAIN_DIR = os.path.join(cfg.WORK_DIR, 'rl_brain')
 cfg.FILE_PREFIX = 'model.ckpt'
 cfg.BRAIN_CHECKPOINT_FILE = os.path.join(cfg.BRAIN_DIR, cfg.FILE_PREFIX)
