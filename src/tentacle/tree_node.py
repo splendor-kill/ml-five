@@ -74,7 +74,7 @@ class TreeNode2(object):
     def get_value(self):
         return self._Q + self._U
 
-    def get_pi(self, temperature=1, pi_shape):
+    def get_pi(self, temperature, pi_shape):
         # N(s0, a)^t / sum_b(N(s0, b)^t)
         assert temperature != 0
         assert bool(self._children)

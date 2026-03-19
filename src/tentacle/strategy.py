@@ -10,7 +10,6 @@ from tentacle.board import Board
 from tentacle.dfs import Searcher
 from tentacle.dnn3 import DCNN3
 from tentacle.game import Game
-from tentacle.mcts import MonteCarlo
 from tentacle.mcts1 import MCTS1
 
 
@@ -449,38 +448,6 @@ class Auditor(object):
 
     def absorb(self, winner, **kwargs):
         pass
-
-
-class StrategyMC(Strategy, Auditor):
-    def __init__(self):
-        super().__init__()
-        self.mc = MonteCarlo()
-
-    def preferred_board(self, old, moves, context):
-        game = context
-        return self.mc.select(old, moves, game.whose_turn, context=game)
-
-    def update(self, old, new):
-        pass
-
-    def on_episode_start(self):
-        self.mc.void()
-
-    def swallow(self, who, st0, st1, **kwargs):
-        self.mc.swallow(who, st0, st1, **kwargs)
-
-    def absorb(self, winner, **kwargs):
-        self.mc.absorb(winner, **kwargs)
-
-    def save(self, file):
-        with open(file, 'wb') as f:
-            pickle.dump(self.mc.net, f)
-        print('save OK')
-
-    def load(self, file):
-        with open(file, 'rb') as f:
-            self.mc.net = pickle.load(f)
-        print('load OK')
 
 
 class StrategyMCTS1(Strategy, Auditor):

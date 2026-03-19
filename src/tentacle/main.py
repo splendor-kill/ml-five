@@ -19,7 +19,6 @@ from tentacle.board import Board
 from tentacle.game import Game
 from tentacle.server import net
 from tentacle.strategy import StrategyHuman
-from tentacle.strategy import StrategyMC
 # from tentacle.strategy import StrategyNetBot
 # from tentacle.strategy import StrategyMCTS1
 from tentacle.strategy import StrategyMinMax
@@ -50,11 +49,14 @@ class Gui(object):
             plt.rcParams[k] = ''
 
         self.fig = plt.figure(figsize=((size + 1) / 2.54, (size + 1) / 2.54), facecolor='#FFE991')
-        self.fig.canvas.set_window_title('Training')
+        try:
+            self.fig.canvas.manager.set_window_title('Training')
+        except AttributeError:
+            pass
         span = 1. / (size + 1)
         self.ax = self.fig.add_axes((span, span, (size - 1) * span, (size - 1) * span),
                                     aspect='equal',
-                                    axis_bgcolor='none',
+                                    facecolor='none',
                                     xticks=range(size),
                                     yticks=range(size),
                                     xticklabels=[chr(ord('A') + i) for i in range(size)],
@@ -113,11 +115,11 @@ class Gui(object):
             self.strategy_1.save('./brain1.npz')
             self.strategy_2.save('./brain2.npz')
         elif event.key == '4':
-            self.strategy_1 = StrategyMC()
+            self.strategy_1 = StrategyDNN()
             self.strategy_1.load('./brain1.npz')
             self.strategy_1.stand_for = Board.STONE_BLACK
         elif event.key == '5':
-            self.strategy_2 = StrategyMC()
+            self.strategy_2 = StrategyDNN()
             self.strategy_2.load('./brain2.npz')
             self.strategy_2.stand_for = Board.STONE_WHITE
         elif event.key == 't':
@@ -287,8 +289,6 @@ class Gui(object):
         #     s1.epsilon = 0.3
 
         if self.strategy_1 is None:
-            # s1 = StrategyMC()
-            # s1 = StrategyANN(feat, feat * 2)
             file = tf.train.latest_checkpoint(RL_BRAIN_DIR)
             s1 = StrategyDNN(from_file=file, part_vars=True)
             # s1 = StrategyMCTS1()
@@ -427,14 +427,12 @@ class Gui(object):
         s2.stand_for = Board.STONE_WHITE
         self.strategy_2 = s2
 
-        observer = StrategyMC()
-
         win1, win2, draw = 0, 0, 0
         step_counter, explo_counter = 0, 0
         begin = datetime.datetime.now()
         episodes = 10000
         for i in range(episodes):
-            g = Game(Board(), s1, s2, observer=observer)
+            g = Game(Board(), s1, s2)
             g.step_to_end()
             win1 += 1 if g.winner == Board.STONE_BLACK else 0
             win2 += 1 if g.winner == Board.STONE_WHITE else 0
