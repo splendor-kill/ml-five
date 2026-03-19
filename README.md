@@ -23,28 +23,43 @@
 
 
 ### 3. 代码
-  主要的文件有:
+  项目的主要目录和文件结构如下：
+  ```text
+  ├── data/                  # 存放训练数据集的目录
+  │   └── alphagomoku/       # 包含不同格式和大小的对局数据压缩包
+  ├── src/
+  │   └── tentacle/          # 核心代码目录
+  │       ├── main.py        # GUI，提供人机对弈界面和其它一些功能入口(通过按键)
+  │       ├── game.py        # 一局游戏，由2个AI和1个棋盘组成，可以有或没有GUI
+  │       ├── board.py       # 棋盘状态管理
+  │       ├── config.py      # 项目配置文件
+  │       ├── strategy.py    # 策略(AI)基类
+  │       ├── strategy_dnn.py# 使用DNN作决策的AI
+  │       ├── dnn*.py        # 不同结构的DCNN，本身运行可进行训练或强化学习（依赖TensorFlow）
+  │       ├── mcts.py        # MCTS实现，使用神经网络记录统计信息
+  │       ├── mcts1.py       # 单线程MCTS，使用树结构记录统计信息
+  │       ├── dfs.py         # 另一个基于搜索的AI，来自[7]
+  │       ├── server.py      # 用于和gomocup的其它AI切磋。因为gomocup manager[8]
+  │       │                  # 是个Windows程序，而我们的程序主要跑在Linux上，
+  │       │                  # 所以做了一次转发：gomocup manager <-> Windows stub[9] <-> server.py
+  │       ├── data_set.py    # 数据集处理相关
+  │       ├── ds_loader.py   # 数据加载器
+  │       ├── rl_policy.py   # 强化学习策略相关
+  │       └── value_net.py   # 价值网络实现
+  ├── pyproject.toml         # uv 项目配置及依赖管理文件
+  └── README.md              # 项目说明文档
   ```
-  main.py          #GUI，提供人机对弈界面和其它一些功能入口(通过按键)
-  game.py          #一局游戏，由2个AI和1个棋盘组成，可以有或没有GUI
-  board.py         #棋盘状态
-  strategy.py      #策略(AI)基类
-  strategy_dnn.py  #使用dnn作决策的AI
-  dnn*.py          #不同结构的DCNN，从本身运行可训练或强化, 用到tensorflow
-  mcts.py          #TODO MCTS，使用NN记录统计信息
-  mcts1.py         #单线程MCTS，使用Tree记录统计信息
-  dfs.py           #另一个AI，来自[7]
-  server.py        #用于和gomocup的其它AI切磋，因为gomocup manager[8]
-                   #是个Windows程序，而我们的程序主要跑在Linux上，
-                   #所以做了一次转发：
-                   #gomocup manager <-> Windows stub[9] <-> server.py
-```
 
 ### 4. 使用
-  为了跑起来，你需要在代码里改些配置，主要是在config.py里。</br>
-  监督学习: python dnn3.py</br>
-  强化学习: python main.py, 再按F4</br>
-  参与到gomocup manager: python server.py
+  本项目使用 `uv` 进行环境和依赖管理。首先安装依赖：
+  ```bash
+  uv sync
+  ```
+  
+  为了跑起来，你需要在代码里改些配置，主要是在 `src/tentacle/config.py` 里。</br>
+  监督学习: `uv run python src/tentacle/dnn3.py`</br>
+  强化学习: `uv run ml-five-main` (或 `uv run python src/tentacle/main.py`), 再按F4</br>
+  参与到gomocup manager: `uv run ml-five-server` (或 `uv run python src/tentacle/server.py`)
 
 
 ### 5. 下一步想做的

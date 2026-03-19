@@ -631,5 +631,8 @@ class Gui(object):
         net_t.start()
 
 
-if __name__ == '__main__':
+def main():
     gui = Gui()
+
+if __name__ == '__main__':
+    main()

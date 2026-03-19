@@ -164,5 +164,8 @@ def net(msg_queue=None):
 
 
 s1 = None
-if __name__ == '__main__':
+def main():
     net()
+
+if __name__ == '__main__':
+    main()
