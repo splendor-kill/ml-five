@@ -1,18 +1,18 @@
 import copy
-from datetime import datetime
-from multiprocessing import Queue
 import os
-import time
+from datetime import datetime
 
 import numpy as np
-import pandas as pd
-import tensorflow as tf
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
 from tentacle.board import Board
+from tentacle.checkpoint import latest_checkpoint
 from tentacle.config import cfg
 from tentacle.game import Game
 from tentacle.tree_node import TreeNode2
 from tentacle.utils import ReplayMemory
-from tentacle.utils import attemper
 
 
 N_RES_BLOCKS = 19
@@ -27,132 +27,76 @@ N_STEPS_EXPLORE = 10
 def get_input_shape():
     return Board.BOARD_SIZE, Board.BOARD_SIZE, 3
 
-def input_fn():
-    h, w, c = get_input_shape()
-    states = tf.placeholder(tf.float32, [None, h, w, c])  # NHWC
-    actions = tf.placeholder(tf.float32, [None, N_ACTIONS])
-    values = tf.placeholder(tf.float32, [None])
-    return states, actions, values
+
+class ResidualBlock(nn.Module):
+    def __init__(self, channels):
+        super().__init__()
+        self.conv1 = nn.Conv2d(channels, channels, kernel_size=3, padding=1, bias=False)
+        self.bn1 = nn.BatchNorm2d(channels)
+        self.conv2 = nn.Conv2d(channels, channels, kernel_size=3, padding=1, bias=False)
+        self.bn2 = nn.BatchNorm2d(channels)
+
+    def forward(self, x):
+        residual = x
+        x = F.relu(self.bn1(self.conv1(x)), inplace=True)
+        x = self.bn2(self.conv2(x))
+        x = F.relu(x + residual, inplace=True)
+        return x
 
 
-def squad(x, filters, kernel_size, training):
-    inputs = tf.layers.conv2d(inputs=x,
-                     filters=filters,
-                     kernel_size=kernel_size,
-                     padding='same',
-                     kernel_regularizer=tf.nn.l2_loss)
-    inputs = tf.layers.batch_normalization(inputs=inputs,
-                                           training=training)
-    return tf.nn.relu(inputs)
+class AlphaZeroNet(nn.Module):
+    def __init__(self, board_size, n_blocks, n_actions):
+        super().__init__()
+        self.stem = nn.Sequential(
+            nn.Conv2d(3, N_FILTERS, kernel_size=3, padding=1, bias=False),
+            nn.BatchNorm2d(N_FILTERS),
+            nn.ReLU(inplace=True),
+        )
+        self.blocks = nn.Sequential(*[ResidualBlock(N_FILTERS) for _ in range(n_blocks)])
+        self.policy_head = nn.Sequential(
+            nn.Conv2d(N_FILTERS, 2, kernel_size=1, bias=False),
+            nn.BatchNorm2d(2),
+            nn.ReLU(inplace=True),
+        )
+        self.policy_fc = nn.Linear(2 * board_size * board_size, n_actions)
+        self.value_head = nn.Sequential(
+            nn.Conv2d(N_FILTERS, 1, kernel_size=1, bias=False),
+            nn.BatchNorm2d(1),
+            nn.ReLU(inplace=True),
+        )
+        self.value_fc1 = nn.Linear(board_size * board_size, 256)
+        self.value_fc2 = nn.Linear(256, 1)
+
+    def forward(self, x):
+        x = self.stem(x)
+        x = self.blocks(x)
+
+        policy = self.policy_head(x).flatten(1)
+        policy = self.policy_fc(policy)
+
+        value = self.value_head(x).flatten(1)
+        value = F.relu(self.value_fc1(value), inplace=True)
+        value = torch.tanh(self.value_fc2(value)).squeeze(-1)
+        return policy, value
 
 
-def residual_block(x, training):
-    filters = N_FILTERS
-    kernel_size = [3, 3]
-
-    inputs = squad(x, filters, kernel_size, training)
-
-    inputs = tf.layers.conv2d(inputs=inputs,
-                     filters=filters,
-                     kernel_size=kernel_size,
-                     padding='same',
-                     kernel_regularizer=tf.nn.l2_loss)
-    inputs = tf.layers.batch_normalization(inputs=inputs,
-                                           training=training)
-    inputs = inputs + x
-    inputs = tf.nn.relu(inputs)
-    return inputs
-
-
-def model_fn(s, training, n_blocks, z, pi):
-    global_step = tf.Variable(0, name='global_step', trainable=False)
-
-    with tf.variable_scope("entrance"):
-        inputs = squad(s, filters=N_FILTERS,
-                       kernel_size=[3, 3],
-                       training=training)
-
-    with tf.variable_scope("resbs"):
-        for _ in range(n_blocks):
-            inputs = residual_block(inputs, training)
-
-    with tf.name_scope("bottleneck"):
-        bottleneck = tf.identity(inputs)
-
-    with tf.variable_scope("policy"):
-        inputs = squad(bottleneck, filters=2,
-                       kernel_size=[1, 1],
-                       training=training)
-
-        conv_out_dim = inputs.get_shape()[1:].num_elements()
-        inputs = tf.reshape(inputs, [-1, conv_out_dim])
-
-        preds = tf.layers.dense(inputs=inputs,
-                                units=N_ACTIONS,
-                                kernel_regularizer=tf.nn.l2_loss)
-        pred_probs = tf.nn.softmax(preds)
-
-    with tf.variable_scope("value"):
-        inputs = squad(bottleneck, filters=1,
-                       kernel_size=[1, 1],
-                       training=training)
-
-        conv_out_dim = inputs.get_shape()[1:].num_elements()
-        inputs = tf.reshape(inputs, [-1, conv_out_dim])
-
-        inputs = tf.layers.dense(inputs=inputs,
-                                units=256,
-                                kernel_regularizer=tf.nn.l2_loss)
-        inputs = tf.nn.relu(inputs)
-        value = tf.layers.dense(inputs=inputs,
-                                units=1,
-                                kernel_regularizer=tf.nn.l2_loss,
-                                activation=tf.nn.tanh)
-
-    with tf.name_scope("loss"):
-        value_loss = tf.squared_difference(z, value)
-        policy_loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(labels=pi, logits=preds))
-        reg_loss = tf.reduce_sum(tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES))
-        loss = value_loss + policy_loss + 0.0001 * reg_loss
-
-    tf.summary.scalar("value_loss", value_loss)
-    tf.summary.scalar("policy_loss", policy_loss)
-    tf.summary.scalar("loss", loss)
-
-    learning_rate = tf.train.exponential_decay(0.01, global_step, 200 * 1000, 0.1, staircase=True)
-    optimizer = tf.train.MomentumOptimizer(learning_rate, 0.9)
-    update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
-    with tf.control_dependencies(update_ops):
-        train_op = optimizer.minimize(loss, global_step=global_step)
-
-    return train_op, pred_probs, value
-
-
-class MCTS2(object):
+class MCTS2:
     def __init__(self, nn_fn):
-        self._lmbda = 0.5
         self._c_puct = 5
-        self.n_thr = 40
-        self.n_vl = 3
-        self._L = 5
-        self._n_playout = 50
-
         self._root = TreeNode2(None, 1.0)
         self._nn_fn = nn_fn
 
     def sim_once(self, s0):
-        s = copy.deepcopy(s0)
+        state = copy.deepcopy(s0)
         node = self._root
         while True:
-            legal_states, who, legal_moves = Game.possible_moves(s)
+            legal_states, who, legal_moves = Game.possible_moves(state)
             if len(legal_states) == 0:
                 return None, None
-
             if node.is_leaf():
-                return node, s
-            else:
-                move, node = node.select()
-                s = self.make_a_move(s, move, who)
+                return node, state
+            move, node = node.select()
+            state = self.make_a_move(state, move, who)
 
     def sim_many(self, s0, n):
         leaf_nodes = []
@@ -162,13 +106,18 @@ class MCTS2(object):
             if node is not None:
                 leaf_nodes.append(node)
                 leaf_states.append(state.stones)
-        leaf_states = np.array(leaf_states)
-        ps, vs = self._nn_fn(leaf_states)
-        for node, s, p, v in zip(leaf_nodes, leaf_states, ps, vs):
-            legal_actions = np.where(s == Board.STONE_EMPTY)[0]
-            legal_priors = p[legal_actions]
+        if not leaf_states:
+            return
+        ps, vs = self._nn_fn(np.array(leaf_states))
+        for node, state, prior, value in zip(leaf_nodes, leaf_states, ps, vs):
+            legal_actions = np.where(state == Board.STONE_EMPTY)[0]
+            legal_priors = prior[legal_actions]
+            if legal_priors.sum() <= 0:
+                legal_priors = np.ones_like(legal_priors, dtype=np.float32) / max(len(legal_priors), 1)
+            else:
+                legal_priors = legal_priors / legal_priors.sum()
             node.expand(zip(legal_actions, legal_priors))
-            node.update_recursive(v, self._c_puct)
+            node.update_recursive(float(value), self._c_puct)
 
     def make_a_move(self, board, move, who):
         loc = np.unravel_index(move, (Board.BOARD_SIZE, Board.BOARD_SIZE))
@@ -176,17 +125,9 @@ class MCTS2(object):
         return board
 
     def get_pi_and_best_move(self, t=1):
-        ''' get the prob dist and get best move according the dist
-        
-        assume that it is called sim_many before this function
-        Args:
-            t: temperature
-        Return:
-            a: the preferred action
-        '''
         pi = self._root.get_pi(t, N_ACTIONS)
-        a = np.random.choice(N_ACTIONS, size=1, p=pi)
-        return pi, a
+        action = np.random.choice(N_ACTIONS, size=1, p=pi)
+        return pi, action
 
     def update_with_move(self, last_move):
         if last_move in self._root._children:
@@ -196,79 +137,77 @@ class MCTS2(object):
             self._root = TreeNode2(None, 1.0)
 
 
-
-class AG0(object):
+class AG0:
     def __init__(self, input_fn, model_fn, cur_best_dir):
-        self._input_fn = input_fn
-        self._model_fn = model_fn
+        del input_fn, model_fn
         self._mcts = MCTS2(self.get_prior_probs_and_value)
         self.cur_best_dir = cur_best_dir
         self.replay_memory_games = ReplayMemory(size=cfg.REPLAY_MEMORY_CAPACITY)
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.net = None
+        self.optimizer = None
+        self.summary_dir = None
 
     def prepare(self, training=True):
-        with tf.Graph().as_default():
-            self.states_pl, self.actions_pl, self.values_pl = self._input_fn()
-            self.train_op, self.pred_probs_t, self.value_t = self._model_fn(self.states_pl, training, N_RES_BLOCKS, self.values_pl, self.actions_pl)
-
-            self.summary_op = tf.summary.merge_all()
-
-            self.saver = tf.train.Saver(tf.trainable_variables())
-
-            init_op = tf.group(tf.global_variables_initializer(), tf.local_variables_initializer())
-
-            now = datetime.now().strftime("%Y%m%d-%H%M%S")
-            logdir = os.path.join(cfg.SUMMARY_DIR, "run-{}".format(now,))
-            self.summary_writer = tf.summary.FileWriter(logdir, tf.get_default_graph())
-
-            self.sess = tf.Session()
-            self.sess.run(init_op)
-            print('Initialized')
+        del training
+        h, _, _ = get_input_shape()
+        self.net = AlphaZeroNet(h, N_RES_BLOCKS, N_ACTIONS).to(self.device)
+        self.optimizer = torch.optim.SGD(self.net.parameters(), lr=0.01, momentum=0.9)
+        now = datetime.now().strftime("%Y%m%d-%H%M%S")
+        self.summary_dir = os.path.join(cfg.SUMMARY_DIR, "run-{}".format(now))
+        os.makedirs(self.summary_dir, exist_ok=True)
+        print("Initialized")
 
     def adapt_state(self, board):
         black = (board == Board.STONE_BLACK).astype(np.float32)
         white = (board == Board.STONE_WHITE).astype(np.float32)
         empty = (board == Board.STONE_EMPTY).astype(np.float32)
-
-        # switch perspective
         bn = np.count_nonzero(black)
         wn = np.count_nonzero(white)
-        if bn != wn:  # if it is white turn, switch it
+        if bn != wn:
             black, white = white, black
-
-        # (cur_player, next_player, legal)
         image = np.dstack((black, white, empty)).ravel()
         legal = empty.astype(bool)
         return image, legal
 
+    def _states_to_tensor(self, states):
+        h, w, c = get_input_shape()
+        arr = np.asarray(states, dtype=np.float32).reshape((-1, h, w, c))
+        arr = np.transpose(arr, (0, 3, 1, 2))
+        return torch.from_numpy(arr).to(self.device)
+
     def get_prior_probs_and_value(self, states):
         h, w, c = get_input_shape()
-
         reshaped_states = []
-        for s in states:
-            # TODO: dihedral transform
-            s1, _ = self.adapt_state(s)
+        for state in states:
+            s1, _ = self.adapt_state(state)
             reshaped_states.append(s1)
-        states_feed = np.array(reshaped_states)
-        states_feed = states_feed.reshape((-1, h, w, c))
-        feed_dict = {
-            self.states_pl: states_feed
-        }
-        return self.sess.run([self.pred_probs_t, self.value_t], feed_dict=feed_dict)
+        states_feed = np.array(reshaped_states).reshape((-1, h, w, c))
+        x = self._states_to_tensor(states_feed)
+        self.net.eval()
+        with torch.no_grad():
+            pred_logits, values = self.net(x)
+            pred_probs = F.softmax(pred_logits, dim=1)
+        return pred_probs.cpu().numpy(), values.cpu().numpy()
 
     def load_from_vat(self, brain_dir):
-        ckpt = tf.train.get_checkpoint_state(brain_dir)
-        if ckpt and ckpt.model_checkpoint_path:
-            self.saver.restore(self.sess, ckpt.model_checkpoint_path)
-#             a = ckpt.model_checkpoint_path.rsplit('-', 1)
-#             self.gstep = int(a[1]) if len(a) > 1 else 1
+        ckpt = latest_checkpoint(brain_dir)
+        if ckpt is None:
+            return
+        payload = torch.load(ckpt, map_location=self.device)
+        self.net.load_state_dict(payload["model"])
+        if payload.get("optimizer") is not None:
+            self.optimizer.load_state_dict(payload["optimizer"])
+
+    def _save_checkpoint(self, brain_dir, step):
+        os.makedirs(brain_dir, exist_ok=True)
+        path = os.path.join(brain_dir, f"model.ckpt-{step}.pt")
+        torch.save({"model": self.net.state_dict(), "optimizer": self.optimizer.state_dict(), "step": step}, path)
 
     def self_play(self):
-        # generate data with cur_best
         self.load_from_vat(self.cur_best_dir)
-
         for _ in range(N_GAMES_TRAIN):
             board = Board()
-            assert (board.stones == Board.STONE_EMPTY).any()
             memo_s = []
             memo_pi = []
             winner = Board.STONE_EMPTY
@@ -280,69 +219,72 @@ class AG0(object):
                 t = 1 if step < N_STEPS_EXPLORE else 1e-9
                 step += 1
                 pi, move = self._mcts.get_pi_and_best_move(t)
-                memo_s.append(board)
-                memo_pi.append(pi)
+                move = int(move[0])
+                memo_s.append(board.stones.copy())
+                memo_pi.append(pi.copy())
                 new_board = copy.deepcopy(board)
                 new_board.place_down(move, cur_player)
                 over, winner, _ = new_board.is_over(board)
+                self._mcts.update_with_move(move)
                 if over:
                     break
                 if self.resign(board, pi):
                     break
                 board = new_board
+                cur_player = Board.oppo(cur_player)
 
             if winner != Board.STONE_EMPTY:
-                reward = winner == whose_persp
-                memo_z = [0] * len(memo_s)
+                reward = 1 if winner == whose_persp else -1
+                memo_z = np.zeros(len(memo_s), dtype=np.float32)
                 memo_z[-1::-2] = reward
-                memo_z[-1::-2] = -reward
-                self.memo(memo_s, memo_pi, memo_z)
+                memo_z[-2::-2] = -reward
+                self.memo(np.array(memo_s), np.array(memo_pi), memo_z)
 
-    def resign(self, pi):
+    def resign(self, board, pi):
+        del board, pi
         return False
 
     def memo(self, s, pi, z):
-        merged = np.hstack([s, pi, z.reshape(-1, 1)])
+        merged = np.array(list(zip(s, pi, z)), dtype=object)
         self.replay_memory_games.append(merged)
 
     def optimize_theta(self):
-        pass
-    #     while True:
-    #         mini_batch = sample 2048 from 500K
-    #         nn.train(mini_batch)
-    #         i += 1
-    #         if i % 1000 == 0:
-    #             save_checkpoint()
+        if not self.replay_memory_games.is_big_enough(1):
+            return
+        mini_batch = self.replay_memory_games.sample(min(len(self.replay_memory_games.indexes), 8))
+        states = np.concatenate([np.stack(item[:, 0]) for item in mini_batch], axis=0)
+        pis = np.concatenate([np.stack(item[:, 1]) for item in mini_batch], axis=0).astype(np.float32)
+        zs = np.concatenate([item[:, 2].astype(np.float32) for item in mini_batch], axis=0)
 
+        x = self._states_to_tensor(np.array([self.adapt_state(s)[0] for s in states]))
+        pi_t = torch.from_numpy(pis).to(self.device)
+        z_t = torch.from_numpy(zs).to(self.device)
+
+        self.net.train()
+        pred_logits, value = self.net(x)
+        value_loss = F.mse_loss(value, z_t)
+        policy_loss = -(pi_t * F.log_softmax(pred_logits, dim=1)).sum(dim=1).mean()
+        reg = torch.zeros((), dtype=torch.float32, device=self.device)
+        for p in self.net.parameters():
+            reg = reg + torch.sum(p * p)
+        loss = value_loss + policy_loss + 1e-4 * reg
+
+        self.optimizer.zero_grad(set_to_none=True)
+        loss.backward()
+        self.optimizer.step()
 
     def eval_theta(self):
-        pass
-        # cur_best vs. each new checkpoint
-    #     for _ in range(N_GAMES_EVAL):
-    #         g = Game()
-    #         while not g.is_over():
-    #             whose_turn = g.whose_turn()
-    #             pi = get_pi(g.state, whose_turn, N_SIMS)
-    #             move = make_decision(pi, t->0)
-    #             g.step(move)
-    #         stat win or lose
-    #     if win_rate > 55%:
-    #         new best is born
-
-
-
+        return None
 
 
 def test_sim_many():
-    zero = AG0(input_fn, model_fn)
+    zero = AG0(None, None, cfg.BRAIN_DIR)
     zero.prepare()
-
     s0 = Board.rand_generate_a_position()
     zero._mcts.sim_many(s0, N_SIMS)
 
 
-if __name__ == '__main__':
-#     test_sim_many()
-    zero = AG0(input_fn, model_fn, cfg.BRAIN_DIR)
+if __name__ == "__main__":
+    zero = AG0(None, None, cfg.BRAIN_DIR)
     zero.prepare()
     zero.self_play()

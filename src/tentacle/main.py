@@ -7,15 +7,15 @@ import glob
 import copy
 import datetime
 import random
+import queue
 from threading import Thread
 
 import matplotlib.patches as patches
 import matplotlib.pyplot as plt
 import numpy as np
-import tensorflow as tf
-from six.moves import queue
 from tentacle.config import cfg
 from tentacle.board import Board
+from tentacle.checkpoint import latest_checkpoint
 from tentacle.game import Game
 from tentacle.server import net
 from tentacle.strategy import StrategyHuman
@@ -289,7 +289,7 @@ class Gui(object):
         #     s1.epsilon = 0.3
 
         if self.strategy_1 is None:
-            file = tf.train.latest_checkpoint(RL_BRAIN_DIR)
+            file = latest_checkpoint(RL_BRAIN_DIR)
             s1 = StrategyDNN(from_file=file, part_vars=True)
             # s1 = StrategyMCTS1()
             self.strategy_1 = s1
@@ -514,10 +514,10 @@ class Gui(object):
 
         part_vars = True
         if resume and len(self.oppo_pool) != 0:
-            file = tf.train.latest_checkpoint(RL_BRAIN_DIR)
+            file = latest_checkpoint(RL_BRAIN_DIR)
             part_vars = False
         else:
-            file = tf.train.latest_checkpoint(SL_BRAIN_DIR)
+            file = latest_checkpoint(SL_BRAIN_DIR)
             part_vars = True
         s1 = StrategyDNN(is_train=False, is_revive=True, is_rl=True, from_file=file, part_vars=part_vars)
         print('I was born from', file)
@@ -527,7 +527,7 @@ class Gui(object):
             file = os.path.join(RL_BRAIN_DIR, file)
             part_vars = False
         else:
-            file = tf.train.latest_checkpoint(SL_BRAIN_DIR)
+            file = latest_checkpoint(SL_BRAIN_DIR)
             part_vars = True
         s2 = StrategyDNN(is_train=False, is_revive=True, is_rl=False, from_file=file, part_vars=part_vars)
         print('vs.', file)

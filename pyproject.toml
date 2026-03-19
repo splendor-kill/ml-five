@@ -5,12 +5,11 @@ description = "Alphago-like Gomoku AI"
 readme = "README.md"
 requires-python = ">=3.8"
 dependencies = [
-    "tensorflow",
+    "torch",
     "numpy",
     "pandas",
     "matplotlib",
     "scipy",
-    "six",
 ]
 
 [build-system]

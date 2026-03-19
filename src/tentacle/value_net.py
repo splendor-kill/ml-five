@@ -4,8 +4,12 @@ import os
 import time
 
 import numpy as np
-import tensorflow as tf
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
 from tentacle.board import Board
+from tentacle.checkpoint import latest_checkpoint
 from tentacle.data_set import DataSet
 from tentacle.ds_loader import DatasetLoader
 
@@ -13,127 +17,89 @@ from tentacle.ds_loader import DatasetLoader
 DATASET_CAPACITY = 16 * 8000
 BATCH_SIZE = 32
 
-class ValueNet(object):
 
+class ValueHeadNet(nn.Module):
+    def __init__(self, board_size, in_channels):
+        super().__init__()
+        self.conv = nn.Sequential(
+            nn.Conv2d(in_channels, 32, kernel_size=3, padding=1),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(32, 32, kernel_size=3, padding=1),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(32, 32, kernel_size=3, padding=1),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(32, 32, kernel_size=3, padding=1),
+            nn.ReLU(inplace=True),
+        )
+        flat = 32 * board_size * board_size
+        self.head = nn.Sequential(nn.Linear(flat, 1), nn.Tanh())
+
+    def forward(self, x):
+        feat = self.conv(x).flatten(1)
+        return self.head(feat).squeeze(-1)
+
+
+class ValueNet:
     def __init__(self, brain_dir, summary_dir):
+        del summary_dir
         self.brain_dir = brain_dir
-        self.brain_file = os.path.join(self.brain_dir, 'model.ckpt')
-        self.summary_dir = summary_dir
-
+        self.brain_file = os.path.join(self.brain_dir, "model.ckpt")
         self._has_more_data = True
-
         self.ds_train = None
         self.ds_test = None
+        self.loader_train = None
+        self.loader_test = None
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-        self.graph = tf.Graph()
-        with self.graph.as_default():
-            self.states_pl, self.rewards_pl = self.placeholder_inputs()
-            self.value_outputs, self.opt_op, self.global_step, self.mse = self.model(self.states_pl, self.rewards_pl)
-            self.summary_op = tf.summary.merge_all()
-            init = tf.initialize_all_variables()
-            self.saver = tf.train.Saver(tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope="value_net"))
-        self.summary_writer = tf.summary.FileWriter(self.summary_dir, self.graph)
-        self.sess = tf.Session(graph=self.graph)
-        self.sess.run(init)
+        h, _, c = self.get_input_shape()
+        self.net = ValueHeadNet(h, c).to(self.device)
+        self.optimizer = torch.optim.Adam(self.net.parameters(), lr=1e-4)
+        self.global_step = 0
 
     def get_input_shape(self):
-        NUM_CHANNELS = 4
-        return Board.BOARD_SIZE, Board.BOARD_SIZE, NUM_CHANNELS
+        num_channels = 4
+        return Board.BOARD_SIZE, Board.BOARD_SIZE, num_channels
 
-    def placeholder_inputs(self):
+    def _to_tensor_states(self, states):
         h, w, c = self.get_input_shape()
-        states = tf.placeholder(tf.float32, [None, h, w, c])  # NHWC
-        rewards = tf.placeholder(tf.float32, shape=[None])
-        return states, rewards
-
-    def weight_variable(self, shape):
-        initial = tf.truncated_normal(shape, stddev=0.01)
-        return tf.Variable(initial)
-
-    def bias_variable(self, shape):
-        initial = tf.constant(0.1, shape=shape)
-        return tf.Variable(initial)
-
-    def create_value_net(self, states_pl):
-        NUM_CHANNELS = 4
-        ch1 = 32
-        W_1 = self.weight_variable([3, 3, NUM_CHANNELS, ch1])
-        b_1 = self.bias_variable([ch1])
-
-        ch = 32
-        W_2 = self.weight_variable([3, 3, ch1, ch])
-        b_2 = self.bias_variable([ch])
-        W_21 = self.weight_variable([3, 3, ch, ch])
-        b_21 = self.bias_variable([ch])
-        W_22 = self.weight_variable([3, 3, ch, ch])
-        b_22 = self.bias_variable([ch])
-#         W_23 = self.weight_variable([1, 1, ch, 1])
-#         b_23 = self.bias_variable([1])
-
-        h_conv1 = tf.nn.relu(tf.nn.conv2d(states_pl, W_1, [1, 1, 1, 1], padding='SAME') + b_1)
-        h_conv2 = tf.nn.relu(tf.nn.conv2d(h_conv1, W_2, [1, 1, 1, 1], padding='SAME') + b_2)
-        h_conv21 = tf.nn.relu(tf.nn.conv2d(h_conv2, W_21, [1, 1, 1, 1], padding='SAME') + b_21)
-        h_conv22 = tf.nn.relu(tf.nn.conv2d(h_conv21, W_22, [1, 1, 1, 1], padding='SAME') + b_22)
-#         h_conv23 = tf.nn.relu(tf.nn.conv2d(h_conv22, W_23, [1, 1, 1, 1], padding='SAME') + b_23)
-
-        conv_out_dim = h_conv22.get_shape()[1:].num_elements()
-        conv_out = tf.reshape(h_conv22, [-1, conv_out_dim])
-
-        num_hidden = 1
-
-        W_3 = tf.Variable(tf.zeros([conv_out_dim, num_hidden], tf.float32))
-        b_3 = tf.Variable(tf.zeros([num_hidden], tf.float32))
-#         W_4 = tf.Variable(tf.zeros([num_hidden, 1], tf.float32))
-#         b_4 = tf.Variable(tf.zeros([1], tf.float32))
-
-#         hidden = tf.nn.relu(tf.matmul(conv_out, W_3) + b_3)
-#         fc_out = tf.matmul(hidden, W_4) + b_4
-        fc_out = tf.tanh(tf.matmul(conv_out, W_3) + b_3)
-        return fc_out
-
-    def model(self, states_pl, rewards_pl):
-        global_step = tf.Variable(0, name='global_step', trainable=False)
-
-        with tf.variable_scope("value_net"):
-            value_outputs = self.create_value_net(states_pl)
-        value_net_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope="value_net")
-
-        mean_square_loss = tf.reduce_mean(tf.squared_difference(rewards_pl, value_outputs))
-        value_reg_loss = tf.reduce_sum([tf.reduce_sum(tf.square(x)) for x in value_net_vars])
-        value_loss = mean_square_loss + 0.001 * value_reg_loss
-
-        optimizer = tf.train.AdamOptimizer(0.0001)
-        value_opt_op = optimizer.minimize(value_loss, global_step=global_step)
-
-        tf.summary.scalar("raw_value_loss", mean_square_loss)
-        tf.summary.scalar("reg_value_loss", value_reg_loss)
-        tf.summary.scalar("all_value_loss", value_loss)
-        return value_outputs, value_opt_op, global_step, mean_square_loss
+        arr = np.asarray(states, dtype=np.float32).reshape((-1, h, w, c))
+        arr = np.transpose(arr, (0, 3, 1, 2))
+        return torch.from_numpy(arr).to(self.device)
 
     def get_state_values(self, states, players):
         h, w, c = self.get_input_shape()
-
         ss = []
-        for s, p in zip(states, players):
-            img, _ = self.adapt_state(s, p)
+        for state, player in zip(states, players):
+            img, _ = self.adapt_state(state, player)
             ss.append(img)
-        ss = np.array(ss)
-
-        feed_dict = {
-            self.states_pl: ss.reshape((-1, h, w, c)),
-        }
-        return self.sess.run(self.value_outputs, feed_dict=feed_dict)
+        ss = np.array(ss).reshape((-1, h, w, c))
+        x = self._to_tensor_states(ss)
+        self.net.eval()
+        with torch.no_grad():
+            val = self.net(x)
+        return val.cpu().numpy()
 
     def save(self):
-        self.saver.save(self.sess, self.brain_file)
+        os.makedirs(self.brain_dir, exist_ok=True)
+        path = f"{self.brain_file}-{self.global_step}.pt"
+        torch.save(
+            {"model": self.net.state_dict(), "optimizer": self.optimizer.state_dict(), "global_step": self.global_step},
+            path,
+        )
 
     def load(self):
-        ckpt = tf.train.get_checkpoint_state(self.brain_dir)
-        if ckpt and ckpt.model_checkpoint_path:
-            self.saver.restore(self.sess, ckpt.model_checkpoint_path)
+        ckpt = latest_checkpoint(self.brain_dir)
+        if ckpt is None:
+            return
+        payload = torch.load(ckpt, map_location=self.device)
+        self.net.load_state_dict(payload["model"])
+        if payload.get("optimizer") is not None:
+            self.optimizer.load_state_dict(payload["optimizer"])
+        self.global_step = int(payload.get("global_step", self.global_step))
 
     def close(self):
-        self.sess.close()
+        self.net = None
+        self.optimizer = None
 
     def train(self, train_dat_file, test_dat_file):
         self.loader_train = DatasetLoader(train_dat_file)
@@ -141,7 +107,7 @@ class ValueNet(object):
 
         epoch = 0
         while True:
-            print('epoch:', epoch)
+            print("epoch:", epoch)
             epoch += 1
 
             ith_part = 0
@@ -149,58 +115,56 @@ class ValueNet(object):
                 ith_part += 1
                 self.adapt()
                 self.train_part(ith_part)
-#                 if ith_part >= 1:
-#                     break
 
             self._has_more_data = True
-#             if epoch >= 1:
-#                 break
 
-
-    def fill_feed_dict(self, data_set, states_pl, rewards_pl, batch_size=None):
+    def fill_feed_dict(self, data_set, batch_size=None):
         batch_size = batch_size or BATCH_SIZE
-        states_feed, rewards_feed = data_set.next_batch(batch_size)
-        feed_dict = {
-            states_pl: states_feed,
-            rewards_pl: rewards_feed
-        }
-        return feed_dict
+        return data_set.next_batch(batch_size)
 
     def train_part(self, ith_part):
-        NUM_STEPS = self.ds_train.num_examples // BATCH_SIZE
-        print('total num steps:', NUM_STEPS)
+        num_steps = max(self.ds_train.num_examples // BATCH_SIZE, 1)
+        print("total num steps:", num_steps)
         start_time = time.time()
-        train_mse = 0.
-        for step in range(1, NUM_STEPS + 1):
-            feed_dict = self.fill_feed_dict(self.ds_train, self.states_pl, self.rewards_pl)
-            _, train_mse = self.sess.run([self.opt_op, self.mse], feed_dict=feed_dict)
+        train_mse = 0.0
+        self.net.train()
+        for step in range(1, num_steps + 1):
+            states_feed, rewards_feed = self.fill_feed_dict(self.ds_train)
+            x = self._to_tensor_states(states_feed)
+            y = torch.from_numpy(np.asarray(rewards_feed, dtype=np.float32).reshape(-1)).to(self.device)
+            preds = self.net(x)
+            mse = F.mse_loss(preds, y)
 
-            if step % 1000 == 0:
-                summary_str, gstep = self.sess.run([self.summary_op, self.global_step], feed_dict=feed_dict)
-                self.summary_writer.add_summary(summary_str, gstep)
-                self.summary_writer.flush()
+            self.optimizer.zero_grad(set_to_none=True)
+            mse.backward()
+            self.optimizer.step()
+            self.global_step += 1
+            train_mse = float(mse.detach().cpu().item())
 
-            if step == NUM_STEPS:
-                self.saver.save(self.sess, self.brain_file, global_step=self.global_step)
+            if step == num_steps:
+                self.save()
 
         duration = time.time() - start_time
-        test_mse = self.do_eval(self.mse, self.states_pl, self.rewards_pl, self.ds_test)
-        print('part: %d, acc_train: %.3f, test accuracy: %.3f, time cost: %.3f sec' %
-              (ith_part, train_mse, test_mse, duration))
+        test_mse = self.do_eval(self.ds_test)
+        print("part: %d, acc_train: %.3f, test accuracy: %.3f, time cost: %.3f sec" % (ith_part, train_mse, test_mse, duration))
 
-    def do_eval(self, mse, states_pl, rewards_pl, data_set):
-        accum_mse = 0.
+    def do_eval(self, data_set):
+        accum_mse = 0.0
         batch_size = BATCH_SIZE
-        assert batch_size != 0
-        steps_per_epoch = math.ceil(data_set.num_examples / batch_size)
-        for _ in range(steps_per_epoch):
-            feed_dict = self.fill_feed_dict(data_set, states_pl, rewards_pl, batch_size)
-            accum_mse += self.sess.run(mse, feed_dict=feed_dict)
+        steps_per_epoch = max(math.ceil(data_set.num_examples / batch_size), 1)
+        self.net.eval()
+        with torch.no_grad():
+            for _ in range(steps_per_epoch):
+                states_feed, rewards_feed = self.fill_feed_dict(data_set, batch_size)
+                x = self._to_tensor_states(states_feed)
+                y = torch.from_numpy(np.asarray(rewards_feed, dtype=np.float32).reshape(-1)).to(self.device)
+                preds = self.net(x)
+                accum_mse += float(F.mse_loss(preds, y).cpu().item())
         avg_mse = accum_mse / (steps_per_epoch or 1)
         return avg_mse
 
     def forge(self, row):
-        board = row[:Board.BOARD_SIZE_SQ]
+        board = row[: Board.BOARD_SIZE_SQ]
         player = row[-2]
         image, _ = self.adapt_state(board, player)
         reward = row[-1]
@@ -211,38 +175,34 @@ class ValueNet(object):
         white = (board == Board.STONE_WHITE).astype(float)
         empty = (board == Board.STONE_EMPTY).astype(float)
         is_black_move = np.ones_like(black, float) if player == Board.STONE_BLACK else np.zeros_like(black, float)
-
         image = np.dstack((black, white, empty, is_black_move)).ravel()
         legal = empty.astype(bool)
         return image, legal
 
     def adapt(self):
         gc.collect()
-
         if self.ds_train is not None and not self.loader_train.is_wane:
             self.ds_train = None
         if self.ds_test is not None and not self.loader_test.is_wane:
             self.ds_test = None
-
         gc.collect()
 
         h, w, c = self.get_input_shape()
 
-        def f(dat):
+        def build_dataset(dat):
             ds = []
             for row in dat:
                 s, r = self.forge(row)
                 ds.append((s, r))
-            ds = np.array(ds)
-
+            ds = np.array(ds, dtype=object)
             return DataSet(np.vstack(ds[:, 0]).reshape((-1, h, w, c)), ds[:, 1])
 
         if self.ds_train is None:
             ds_train, self._has_more_data = self.loader_train.load(DATASET_CAPACITY)
-            self.ds_train = f(ds_train)
+            self.ds_train = build_dataset(ds_train)
         if self.ds_test is None:
             ds_test, _ = self.loader_test.load(DATASET_CAPACITY // 2)
-            self.ds_test = f(ds_test)
+            self.ds_test = build_dataset(ds_test)
 
         print(self.ds_train.images.shape, self.ds_train.labels.shape)
         print(self.ds_test.images.shape, self.ds_test.labels.shape)

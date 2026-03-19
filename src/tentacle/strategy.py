@@ -394,7 +394,7 @@ class StrategyHeuristic(Strategy):
 
         offset = np.array([[-1, -1], [-1, 0], [-1, 1],
                  [0, -1], [0, 1],
-                 [1, -1], [1, 0], [1, 1]], np.int)
+                 [1, -1], [1, 0], [1, 1]], dtype=int)
         loc = np.where(old.stones == 0)
         box = []
         for i in loc[0]:

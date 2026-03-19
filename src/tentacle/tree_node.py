@@ -81,11 +81,18 @@ class TreeNode2(object):
 
         all_N = np.array([node._N for node in self._children.values()])
         heat = np.power(all_N, 1. / temperature)
-        pi = heat / heat.sum()
-        inclue_all = np.zeros(pi_shape)
+        heat_sum = heat.sum()
+        if heat_sum == 0:
+            pi = np.ones_like(heat, dtype=np.float32) / heat.size
+        else:
+            pi = heat / heat_sum
+        inclue_all = np.zeros(pi_shape, dtype=np.float64)
         for action, p in zip(self._children.keys(), pi):
             inclue_all[action] = p
-        return inclue_all
+        total = inclue_all.sum()
+        if total == 0:
+            raise ValueError('policy distribution is empty')
+        return inclue_all / total
 
     def is_leaf(self):
         return not self._children

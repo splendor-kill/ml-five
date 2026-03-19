@@ -18,7 +18,7 @@
   对于监督学习，首先是收集数据。</br>
   我们的数据采集自gomocup前几名AI对弈记录。</br>
   你可以在[这儿\[6\]][6]下载，它们是经过对称旋转变换的。</br>
-  做了几种不同的数据集，9x9和15x15大小的，有csv格式和TFRecord格式，</br>
+  做了几种不同的数据集，9x9和15x15大小的，主要是csv格式，</br>
   数据的含义参考[\[6\]][6]里的README。</br>
 
 
@@ -35,7 +35,7 @@
   │       ├── config.py      # 项目配置文件
   │       ├── strategy.py    # 策略(AI)基类
   │       ├── strategy_dnn.py# 使用DNN作决策的AI
-  │       ├── dnn*.py        # 不同结构的DCNN，本身运行可进行训练或强化学习（依赖TensorFlow）
+  │       ├── dnn*.py        # 不同结构的DCNN，本身运行可进行训练或强化学习（依赖PyTorch）
   │       ├── mcts.py        # MCTS实现，使用神经网络记录统计信息
   │       ├── mcts1.py       # 单线程MCTS，使用树结构记录统计信息
   │       ├── dfs.py         # 另一个基于搜索的AI，来自[7]
@@ -57,7 +57,7 @@
   ```
   
   为了跑起来，你需要在代码里改些配置，主要是在 `src/tentacle/config.py` 里。</br>
-  监督学习: `uv run python src/tentacle/dnn3.py`</br>
+  监督学习: `uv run python src/tentacle/dnn3.py`（PyTorch）</br>
   强化学习: `uv run ml-five-main` (或 `uv run python src/tentacle/main.py`), 再按F4</br>
   参与到gomocup manager: `uv run ml-five-server` (或 `uv run python src/tentacle/server.py`)
 

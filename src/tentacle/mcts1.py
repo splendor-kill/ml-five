@@ -166,7 +166,7 @@ class MCTS1(object):
         a = np.unpackbits(a)
         a = a.reshape(shape[0], -1)
         a = a[:, :shape[1]]
-        b = np.zeros_like(a[0], np.int)
+        b = np.zeros_like(a[0], dtype=int)
         b[a[0] == 1] = Board.STONE_BLACK
         b[a[1] == 1] = Board.STONE_WHITE
         b[a[2] == 1] = Board.STONE_EMPTY

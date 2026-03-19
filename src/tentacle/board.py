@@ -23,7 +23,7 @@ class Board(object):
     BOARD_SIZE_SQ = BOARD_SIZE ** 2
 
     def __init__(self):
-        self.stones = np.zeros(Board.BOARD_SIZE_SQ, np.int)
+        self.stones = np.zeros(Board.BOARD_SIZE_SQ, dtype=int)
         self.over = False
         self.winner = Board.STONE_EMPTY
         self.exploration = False
