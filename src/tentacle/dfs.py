@@ -1,8 +1,6 @@
-# -*- coding: utf-8 -*-
-
 from tentacle.board import Board
 
-class Eval(object):
+class Eval:
     SZ = Board.BOARD_SIZE
     HS = SZ // 2
 
@@ -454,7 +452,7 @@ class Eval(object):
         return '\n'.join(text)
 
 
-class Searcher(object):
+class Searcher:
 
     def __init__(self):
         self.evaluator = Eval()

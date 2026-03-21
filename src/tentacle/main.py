@@ -1,3 +1,4 @@
+import argparse
 import copy
 import datetime
 import glob
@@ -30,6 +31,31 @@ plt = None
 patches = None
 
 
+def _brain_file_for_side(side):
+    if side == Board.STONE_BLACK:
+        return BRAIN1_FILE
+    if side == Board.STONE_WHITE:
+        return BRAIN2_FILE
+    raise Exception("illegal arg side[%d]" % (side,))
+
+
+def create_strategy_by_name(name, side):
+    if name == "rand":
+        strategy = StrategyRand()
+    elif name == "minmax":
+        strategy = StrategyMinMax()
+    elif name == "td":
+        strategy = StrategyTD(1, 1)
+        strategy.load(_brain_file_for_side(side))
+    elif name == "dnn":
+        strategy = StrategyDNN()
+        strategy.load(_brain_file_for_side(side))
+    else:
+        raise Exception("unsupported strategy[%s]" % (name,))
+    strategy.stand_for = side
+    return strategy
+
+
 def _ensure_matplotlib_loaded():
     """Load matplotlib lazily and choose backend by runtime environment."""
     global plt, patches
@@ -59,7 +85,7 @@ class Gui(object):
     STATE_PLAY = 2
     RESULT_MSG = {Board.STONE_BLACK: "Black Win", Board.STONE_WHITE: "White Win", Board.STONE_EMPTY: "Draw"}
 
-    def __init__(self):
+    def __init__(self, black_strategy=None, white_strategy=None):
         _ensure_matplotlib_loaded()
         import matplotlib.rcsetup as rcsetup
 
@@ -109,6 +135,10 @@ class Gui(object):
         self.state = Gui.STATE_IDLE
         self.strategy_1 = None
         self.strategy_2 = None
+        if black_strategy is not None:
+            self.strategy_1 = create_strategy_by_name(black_strategy, Board.STONE_BLACK)
+        if white_strategy is not None:
+            self.strategy_2 = create_strategy_by_name(white_strategy, Board.STONE_WHITE)
         self.game = None
         self._human_move_queue = queue.Queue(maxsize=8)
         self.all_stones = []
@@ -726,7 +756,23 @@ class Gui(object):
 
 
 def main():
-    gui = Gui()
+    parser = argparse.ArgumentParser(description="Gomoku GUI")
+    parser.add_argument(
+        "-b",
+        "--black-strategy",
+        choices=["rand", "minmax", "td", "dnn"],
+        default=None,
+        help="black side strategy",
+    )
+    parser.add_argument(
+        "-w",
+        "--white-strategy",
+        choices=["rand", "minmax", "td", "dnn"],
+        default=None,
+        help="white side strategy",
+    )
+    args = parser.parse_args()
+    Gui(black_strategy=args.black_strategy, white_strategy=args.white_strategy)
 
 
 if __name__ == "__main__":

@@ -21,7 +21,7 @@ class Board(object):
         STONE_BLACK: np.ones(WIN_STONE_NUM, dtype=int) * STONE_BLACK,
         STONE_WHITE: np.ones(WIN_STONE_NUM, dtype=int) * STONE_WHITE,
     }
-    BOARD_SIZE = 9
+    BOARD_SIZE = 15
     BOARD_SIZE_SQ = BOARD_SIZE**2
 
     def __init__(self):

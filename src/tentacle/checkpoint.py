@@ -1,8 +1,5 @@
-"""Resolve checkpoint file paths for training/inference (single file, directory scan, or prefix)."""
-
 import re
 from pathlib import Path
-
 
 _STEP_SUFFIX_RE = re.compile(r".*-(\d+)(?:\.pt)?$")
 
