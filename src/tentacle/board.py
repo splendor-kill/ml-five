@@ -327,8 +327,3 @@ class Board(object):
         if stat[Board.STONE_BLACK] == stat[Board.STONE_WHITE] + 1:
             return Board.STONE_WHITE  # 该白下
         raise Exception("illegal state")
-
-
-if __name__ == "__main__":
-    b = Board.rand_generate_a_position()
-    print(b)

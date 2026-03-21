@@ -1,34 +1,35 @@
-from collections import deque
 import random
+from collections import deque
+
 import numpy as np
 
 
-class ReplayMemory(object):
+class ReplayMemory:
     def __init__(self, size=100):
         self.indexes = deque(maxlen=size)
-        self.dat = {}
+        self.data = {}
 
     def append(self, x):
         if not self.indexes:
             self.indexes.append(0)
-            self.dat[0] = x
+            self.data[0] = x
             return
 
         if len(self.indexes) == self.indexes.maxlen:
-            self.dat.pop(self.indexes[0])
+            self.data.pop(self.indexes[0])
 
-        idx = self.indexes[-1] + 1
+        idx = (self.indexes[-1] + 1) % self.indexes.maxlen
         self.indexes.append(idx)
-        self.dat[idx] = x
+        self.data[idx] = x
 
     def sample(self, n):
-        assert 0 <= n <= len(self.indexes), 'brain volume too small'
+        assert 0 <= n <= len(self.indexes), "brain volume too small"
 
         idxes = random.sample(self.indexes, n)
 
         l = []
         for idx in idxes:
-            l.append(self.dat[idx])
+            l.append(self.data[idx])
         return l
 
     def is_full(self):
@@ -39,44 +40,31 @@ class ReplayMemory(object):
 
     def clear(self):
         self.indexes.clear()
-        self.dat.clear()
+        self.data.clear()
 
     def dump(self, file):
         l = []
         for idx in self.indexes:
-            l.append(self.dat[idx])
+            l.append(self.data[idx])
         a = np.array(l)
         np.savez(file, a)
 
 
 def attemper(distribution, temperature, legal=None):
-    '''
-        adjust temperature for a probability distribution
-        @param distribution: the sum equals 1
-        @param temperature: proper value 0.01 ~ 100
-        @param legal: a filter indicate which probabilities are legal
-        @return: a new probability distribution
-    '''
-    assert temperature > 0, 'too cold'
+    """
+    adjust temperature for a probability distribution
+    @param distribution: the sum equals 1
+    @param temperature: proper value 0.01 ~ 100
+    @param legal: a filter indicate which probabilities are legal
+    @return: a new probability distribution
+    """
+    assert temperature > 0, "too cold"
     if legal is None:
         legal = np.ones_like(distribution)
-    x = distribution / temperature
-    e_x = np.exp(x - np.max(x))
-    new_dist = e_x / e_x.sum()
-    new_dist *= legal
-    return new_dist / new_dist.sum()
-
-
-if __name__ == '__main__':
-    d = np.array([0.1, 0.4, 0.2, 0.3])
-    d1 = attemper(d, .2, np.array([1, 1, 1, 1.]))
-    print(d1, d1.sum())
-
-#     m = ReplayMemory(5)
-#     for i in range(10):
-#         m.append('s' + str(i))
-#     print(m.indexes)
-#     print(m.dat)
-#
-#     l = m.sample(3)
-#     print(l)
+    distribution = np.asarray(distribution, dtype=float)
+    new_dist = np.power(distribution, 1.0 / temperature)
+    new_dist *= np.asarray(legal, dtype=float)
+    total = new_dist.sum()
+    if not np.isfinite(total) or total <= 0:
+        raise ValueError("attemper: no positive probability mass on legal moves after masking")
+    return new_dist / total

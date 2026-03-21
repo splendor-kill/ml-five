@@ -12,6 +12,9 @@ dependencies = [
     "scipy",
 ]
 
+[project.optional-dependencies]
+dev = ["pytest"]
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
@@ -22,3 +25,7 @@ packages = ["src/tentacle"]
 [project.scripts]
 ml-five-main = "tentacle.main:main"
 ml-five-server = "tentacle.server:main"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
