@@ -6,3 +6,4 @@ result
 /tentacle/*.pyc
 .settings
 data/
+.vscode/

@@ -1,12 +1,9 @@
-import os
-from datetime import datetime
 import numpy as np
+
 from tentacle.board import Board
 
 
 class Game(object):
-
-    on_training = False
 
     def __init__(self, board, strat1, strat2, q=None, observer=None):
         self.board = board
@@ -24,20 +21,25 @@ class Game(object):
         self.observer = observer
         self.q = q
         if self.q is not None:
-            self.q.put(('start',))
+            self.q.put(("start",))
 
     def step(self):
+        if self.over:
+            return
+
+        # Terminal after a move: new_board.is_over(old). Full board (no empties): no moves.
         moves, self.whose_turn, _ = Game.possible_moves(self.board)
+        if not moves:
+            self.over = True
+            self.winner = Board.STONE_EMPTY
+            self.last_loc = None
+            return
 
         strat = self.strat1 if self.whose_turn == self.strat1.stand_for else self.strat2
-#         print('who', strat.stand_for)
 
         strat.update(self.board, None)
 
         new_board = strat.preferred_board(self.board, moves, self)
-        # print('who%d play at %s' % (self.whose_turn,
-        #                             str(divmod(Board.change(self.board, new_board), Board.BOARD_SIZE))))
-#         print(self.board.stones)
         if new_board.exploration:
             strat.setup()
             self.exploration_counter += 1
@@ -66,29 +68,41 @@ class Game(object):
             self.step()
             self.step_counter += 1
 
-            if self.q is not None:
-                self.q.put(('move', self.whose_turn, self.last_loc))
+            if self.q is not None and self.last_loc is not None:
+                self.q.put(("move", self.whose_turn, self.last_loc))
 
             if self.over:
                 if self.q is not None:
-                    self.q.put(('end', self.winner,))
+                    self.q.put(
+                        (
+                            "end",
+                            self.winner,
+                        )
+                    )
                 break
 
     @staticmethod
     def possible_moves(board):
-        '''
+        """
         Returns:
         --------------
-            boards: Board list
-        '''
-#         whose turn is it?
-        who = board.whose_turn_now()
+            boards : list of Board
+                One candidate position per empty cell (same order as empty_indices).
+            who : int
+                Side to move (``Board.STONE_BLACK`` / ``Board.STONE_WHITE``).
+            empty_indices : ndarray
+                1D indices where ``board.stones == 0``; ``len(empty_indices) == len(boards)``.
 
-#         print("it is [%d]'s turn" % who)
+        Notes:
+        --------------
+            Each candidate is a new ``Board()`` with only ``stones`` set from
+            ``board``; ``exploration``, ``over``, ``winner``, etc. are left at
+            defaults and are not copied from ``board``.
+        """
+        who = board.whose_turn_now()
 
         boards = []
         loc = np.where(board.stones == 0)
-#         print(loc)
         for i in loc[0]:
             x = board.stones.copy()
             x[i] = who
@@ -96,5 +110,4 @@ class Game(object):
             b.stones = x
             boards.append(b)
 
-#         print('possible moves[%d]' % len(boards))
         return boards, who, loc[0]

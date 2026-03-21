@@ -2,7 +2,7 @@ import os
 
 cfg = type('', (), {})()
 
-cfg.WORK_DIR = '/home/splendor/wd2t/fusor'
+cfg.WORK_DIR = '/home/adminroot/helix/Mr.5'
 
 cfg.BRAIN_DIR = os.path.join(cfg.WORK_DIR, 'zero')
 cfg.RL_BRAIN_DIR = os.path.join(cfg.WORK_DIR, 'rl_brain')
@@ -11,6 +11,9 @@ cfg.BRAIN_CHECKPOINT_FILE = os.path.join(cfg.BRAIN_DIR, cfg.FILE_PREFIX)
 cfg.SUMMARY_DIR = os.path.join(cfg.WORK_DIR, 'summary')
 cfg.REPLAY_MEMORY_DIR = os.path.join(cfg.WORK_DIR, 'replay')
 cfg.STAT_FILE = os.path.join(cfg.WORK_DIR, 'stat.npz')
+cfg.BRAIN1_FILE = os.path.join(cfg.WORK_DIR, 'brain1.npz')
+cfg.BRAIN2_FILE = os.path.join(cfg.WORK_DIR, 'brain2.npz')
+cfg.GUI_MSG_BATCH = 64
 cfg.MID_VIS_FILE = os.path.join(cfg.WORK_DIR, 'mid_vis.npz')
 cfg.DATA_SET_DIR = os.path.join(cfg.WORK_DIR, 'dataset_gomocup15')
 cfg.DATA_SET_FILE = os.path.join(cfg.DATA_SET_DIR, 'train.txt')
