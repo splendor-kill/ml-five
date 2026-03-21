@@ -1,4 +1,5 @@
-import os
+"""Resolve checkpoint file paths for training/inference (single file, directory scan, or prefix)."""
+
 import re
 from pathlib import Path
 
@@ -7,6 +8,7 @@ _STEP_SUFFIX_RE = re.compile(r".*-(\d+)(?:\.pt)?$")
 
 
 def _extract_step(path: Path) -> int:
+    """Return the trailing ``-N`` step from a filename, or ``-1`` if absent."""
     match = _STEP_SUFFIX_RE.match(path.name)
     if match is None:
         return -1
@@ -14,6 +16,10 @@ def _extract_step(path: Path) -> int:
 
 
 def latest_checkpoint(path: str | None) -> str | None:
+    """Pick a ``.pt`` checkpoint: explicit file, ``path.pt`` if missing, else newest in a directory.
+
+    In a directory, prefers the largest ``-step`` suffix; ties break by mtime.
+    """
     if path is None:
         return None
 
