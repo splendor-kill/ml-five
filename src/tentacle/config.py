@@ -2,7 +2,7 @@ import os
 
 cfg = type('', (), {})()
 
-cfg.WORK_DIR = '/home/adminroot/helix/Mr.5'
+cfg.WORK_DIR = '/home/adminroot/work/ml-five'
 
 cfg.BRAIN_DIR = os.path.join(cfg.WORK_DIR, 'zero')
 cfg.RL_BRAIN_DIR = os.path.join(cfg.WORK_DIR, 'rl_brain')

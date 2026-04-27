@@ -7,3 +7,6 @@ result
 .settings
 data/
 .vscode/
+stat.npz
+zero/
+rl_brain/

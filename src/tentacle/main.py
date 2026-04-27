@@ -1,4 +1,3 @@
-import argparse
 import copy
 import datetime
 import glob
@@ -37,6 +36,87 @@ def _brain_file_for_side(side):
     if side == Board.STONE_WHITE:
         return BRAIN2_FILE
     raise Exception("illegal arg side[%d]" % (side,))
+
+
+def _get_mindsets(folder, prefix):
+    mindsets = set()
+    pattern = os.path.join(folder, prefix) + "*"
+    listing = glob.glob(pattern)
+    for f in listing:
+        mindsets.add(os.path.splitext(os.path.basename(f))[0])
+    return list(mindsets)
+
+
+def run_reinforce(resume=True):
+    """强化学习主循环（与 GUI 中 F4 相同逻辑，可在无显示器环境下运行）。"""
+    os.makedirs(RL_BRAIN_DIR, exist_ok=True)
+    oppo_pool = _get_mindsets(RL_BRAIN_DIR, FILE_PREFIX)
+
+    part_vars = True
+    if resume and len(oppo_pool) != 0:
+        file = latest_checkpoint(RL_BRAIN_DIR)
+        part_vars = False
+    else:
+        file = latest_checkpoint(SL_BRAIN_DIR)
+        part_vars = True
+    s1 = StrategyDNN(is_train=False, is_revive=True, is_rl=True, from_file=file, part_vars=part_vars)
+    print("I was born from", file)
+
+    if len(oppo_pool) != 0:
+        file = random.choice(oppo_pool)
+        file = os.path.join(RL_BRAIN_DIR, file)
+        part_vars = False
+    else:
+        file = latest_checkpoint(SL_BRAIN_DIR)
+        part_vars = True
+    s2 = StrategyDNN(is_train=False, is_revive=True, is_rl=False, from_file=file, part_vars=part_vars)
+    print("vs.", file)
+
+    stat = []
+
+    iter_n = 100
+    for i in range(iter_n):
+        print("iter:", i)
+        win1, win2, draw = 0, 0, 0
+        step_counter, explo_counter = 0, 0
+        episodes = cfg.REINFORCE_PERIOD
+        for _ in range(episodes):
+            s1.stand_for = random.choice([Board.STONE_BLACK, Board.STONE_WHITE])
+            s2.stand_for = Board.oppo(s1.stand_for)
+
+            g = Game(Board.rand_generate_a_position(), s1, s2, observer=s1)
+            g.step_to_end()
+            win1 += 1 if g.winner == s1.stand_for else 0
+            win2 += 1 if g.winner == s2.stand_for else 0
+            draw += 1 if g.winner == Board.STONE_EMPTY else 0
+            s1.win_ratio = win1 / win2 if win2 != 0 else 1.0
+            step_counter += g.step_counter
+            explo_counter += g.exploration_counter
+
+        if s1.win_ratio > 1.1:
+            file = FILE_PREFIX + "-" + str(i)
+            s1.mind_clone(os.path.join(RL_BRAIN_DIR, FILE_PREFIX), i)
+            oppo_pool.append(file)
+            file = random.choice(oppo_pool)
+            file = os.path.join(RL_BRAIN_DIR, file)
+            s2.close()
+            s2 = StrategyDNN(is_train=False, is_revive=True, is_rl=False, from_file=file, part_vars=False)
+            print("vs.", file)
+
+        if i % 1 == 0 or i + 1 == iter_n:
+            total = win1 + win2 + draw
+            win1_r = win1 / total
+            win2_r = win2 / total
+            draw_r = draw / total
+            print("iter:%d, win: %.3f, lose: %.3f, draw: %.3f, t: %.3f" % (i, win1_r, win2_r, draw_r, s1.temperature))
+            stat.append([win1_r, win2_r, draw_r])
+            print("avg. steps[%f], avg. explos[%f]" % (step_counter / episodes, explo_counter / episodes))
+
+        if i % 10 == 0 or i + 1 == iter_n:
+            np.savez(STAT_FILE, stat=np.array(stat))
+
+    print("rl done. you can try it.")
+    return s1
 
 
 def create_strategy_by_name(name, side):
@@ -620,90 +700,12 @@ class Gui(object):
         plt.title("press F3 start")
 
     def reinforce(self, resume=True):
+        s1 = run_reinforce(resume=resume)
         self.oppo_pool = self.get_mindsets(RL_BRAIN_DIR, FILE_PREFIX)
-
-        part_vars = True
-        if resume and len(self.oppo_pool) != 0:
-            file = latest_checkpoint(RL_BRAIN_DIR)
-            part_vars = False
-        else:
-            file = latest_checkpoint(SL_BRAIN_DIR)
-            part_vars = True
-        s1 = StrategyDNN(is_train=False, is_revive=True, is_rl=True, from_file=file, part_vars=part_vars)
-        print("I was born from", file)
-
-        if len(self.oppo_pool) != 0:
-            file = random.choice(self.oppo_pool)
-            file = os.path.join(RL_BRAIN_DIR, file)
-            part_vars = False
-        else:
-            file = latest_checkpoint(SL_BRAIN_DIR)
-            part_vars = True
-        s2 = StrategyDNN(is_train=False, is_revive=True, is_rl=False, from_file=file, part_vars=part_vars)
-        print("vs.", file)
-
-        stat = []
-
-        #         n_lose = 0
-        iter_n = 100
-        for i in range(iter_n):
-            print("iter:", i)
-            win1, win2, draw = 0, 0, 0
-            step_counter, explo_counter = 0, 0
-            episodes = cfg.REINFORCE_PERIOD
-            for _ in range(episodes):
-                s1.stand_for = random.choice([Board.STONE_BLACK, Board.STONE_WHITE])
-                s2.stand_for = Board.oppo(s1.stand_for)
-
-                g = Game(Board.rand_generate_a_position(), s1, s2, observer=s1)
-                g.step_to_end()
-                win1 += 1 if g.winner == s1.stand_for else 0
-                win2 += 1 if g.winner == s2.stand_for else 0
-                draw += 1 if g.winner == Board.STONE_EMPTY else 0
-                #                 print('winner: {:d}, stand for: {:d}'.format(g.winner, s1.stand_for))
-                s1.win_ratio = win1 / win2 if win2 != 0 else 1.0
-                step_counter += g.step_counter
-                explo_counter += g.exploration_counter
-
-            if s1.win_ratio > 1.1:
-                file = FILE_PREFIX + "-" + str(i)
-                s1.mind_clone(os.path.join(RL_BRAIN_DIR, FILE_PREFIX), i)
-                self.oppo_pool.append(file)
-                file = random.choice(self.oppo_pool)
-                file = os.path.join(RL_BRAIN_DIR, file)
-                s2.close()
-                s2 = StrategyDNN(is_train=False, is_revive=True, is_rl=False, from_file=file, part_vars=False)
-                print("vs.", file)
-            #                 n_lose = 0
-            #             elif win1 < win2:
-            #                 n_lose += 1
-            #             if n_lose >= 50:
-            #                 break
-
-            if i % 1 == 0 or i + 1 == iter_n:
-                total = win1 + win2 + draw
-                win1_r = win1 / total
-                win2_r = win2 / total
-                draw_r = draw / total
-                print(
-                    "iter:%d, win: %.3f, lose: %.3f, draw: %.3f, t: %.3f" % (i, win1_r, win2_r, draw_r, s1.temperature)
-                )
-                stat.append([win1_r, win2_r, draw_r])
-                print("avg. steps[%f], avg. explos[%f]" % (step_counter / episodes, explo_counter / episodes))
-
-            if i % 10 == 0 or i + 1 == iter_n:
-                np.savez(STAT_FILE, stat=np.array(stat))
-
-        print("rl done. you can try it.")
         self.strategy_1 = self.strategy_2 = s1
 
     def get_mindsets(self, folder, prefix):
-        mindsets = set()
-        pattern = os.path.join(folder, prefix) + "*"
-        listing = glob.glob(pattern)
-        for f in listing:
-            mindsets.add(os.path.splitext(os.path.basename(f))[0])
-        return list(mindsets)
+        return _get_mindsets(folder, prefix)
 
     def on_update(self):
         i = 0
@@ -755,25 +757,22 @@ class Gui(object):
         net_t.start()
 
 
-def main():
-    parser = argparse.ArgumentParser(description="Gomoku GUI")
-    parser.add_argument(
-        "-b",
-        "--black-strategy",
-        choices=["rand", "minmax", "td", "dnn"],
-        default=None,
-        help="black side strategy",
-    )
-    parser.add_argument(
-        "-w",
-        "--white-strategy",
-        choices=["rand", "minmax", "td", "dnn"],
-        default=None,
-        help="white side strategy",
-    )
-    args = parser.parse_args()
-    Gui(black_strategy=args.black_strategy, white_strategy=args.white_strategy)
+def launch_gui(black_strategy=None, white_strategy=None):
+    """启动图形界面（人机对弈、快捷键训练等）。"""
+    Gui(black_strategy=black_strategy, white_strategy=white_strategy)
 
 
 if __name__ == "__main__":
-    main()
+    import sys
+
+    from tentacle.cli import main as cli_main
+
+    if len(sys.argv) == 1:
+        launch_gui()
+    else:
+        first = sys.argv[1]
+        if first in ("gui", "supervised", "reinforce", "-h", "--help"):
+            cli_main()
+        else:
+            sys.argv = [sys.argv[0], "gui", *sys.argv[1:]]
+            cli_main()

@@ -23,7 +23,8 @@ build-backend = "hatchling.build"
 packages = ["src/tentacle"]
 
 [project.scripts]
-ml-five-main = "tentacle.main:main"
+ml-five = "tentacle.cli:main"
+ml-five-main = "tentacle.cli:main_gui_only"
 ml-five-server = "tentacle.server:main"
 
 [tool.pytest.ini_options]
