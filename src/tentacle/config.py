@@ -2,7 +2,7 @@ import os
 
 cfg = type('', (), {})()
 
-cfg.WORK_DIR = '/home/adminroot/work/ml-five'
+cfg.WORK_DIR = '.'
 
 cfg.BRAIN_DIR = os.path.join(cfg.WORK_DIR, 'zero')
 cfg.RL_BRAIN_DIR = os.path.join(cfg.WORK_DIR, 'rl_brain')
@@ -15,7 +15,7 @@ cfg.BRAIN1_FILE = os.path.join(cfg.WORK_DIR, 'brain1.npz')
 cfg.BRAIN2_FILE = os.path.join(cfg.WORK_DIR, 'brain2.npz')
 cfg.GUI_MSG_BATCH = 64
 cfg.MID_VIS_FILE = os.path.join(cfg.WORK_DIR, 'mid_vis.npz')
-cfg.DATA_SET_DIR = os.path.join(cfg.WORK_DIR, 'dataset_gomocup15')
+cfg.DATA_SET_DIR = os.path.join(cfg.WORK_DIR, 'data/alphagomoku/dataset_gomocup15')
 cfg.DATA_SET_FILE = os.path.join(cfg.DATA_SET_DIR, 'train.txt')
 cfg.DATA_SET_TRAIN = os.path.join(cfg.DATA_SET_DIR, 'train.txt')
 cfg.DATA_SET_VALID = os.path.join(cfg.DATA_SET_DIR, 'validation.txt')

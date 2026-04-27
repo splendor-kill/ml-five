@@ -21,14 +21,6 @@ def _cmd_supervised(args: argparse.Namespace) -> None:
         from tentacle.dnn import Pre
 
         model = Pre(is_train=True, is_revive=resume, is_rl=False)
-    elif args.network == "dnn1":
-        from tentacle.dnn1 import DCNN1
-
-        model = DCNN1(is_train=True, is_revive=resume, is_rl=False)
-    elif args.network == "dnn2":
-        from tentacle.dnn2 import DCNN2
-
-        model = DCNN2(is_train=True, is_revive=resume, is_rl=False)
     else:
         from tentacle.dnn3 import DCNN3
 
@@ -79,7 +71,7 @@ def main() -> None:
     )
     sl_p.add_argument(
         "--network",
-        choices=["dnn1", "dnn2", "dnn3", "pre"],
+        choices=["dnn3", "pre"],
         default="dnn3",
         help="网络变体：dnn3 为默认 DCNN3；pre 为 dnn.Pre",
     )

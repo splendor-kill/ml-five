@@ -58,7 +58,7 @@
   
   为了跑起来，你需要在代码里改些配置，主要是在 `src/tentacle/config.py` 里。</br>
   命令行统一入口为 `ml-five`（子命令）：</br>
-  * 监督学习: `uv run ml-five supervised`（默认 DCNN3；`--network dnn1|dnn2|pre` 可选；`--resume` 从 checkpoint 续训）</br>
+  * 监督学习: `uv run ml-five supervised`（默认 DCNN3；`--network pre` 可切回 dnn.Pre；`--resume` 从 checkpoint 续训）</br>
   * 强化学习: `uv run ml-five reinforce`（原 GUI 按 F4；`--no-resume` 强制从监督学习权重起步）</br>
   * 图形界面: `uv run ml-five gui`（或仍可用 `uv run ml-five-main`，等价于 `ml-five gui`）</br>
   仍可直接运行: `uv run python src/tentacle/dnn3.py` 等脚本，行为与原先一致。</br>
