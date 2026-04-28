@@ -65,7 +65,73 @@ def _get_mindsets(folder, prefix):
     return list(mindsets)
 
 
-def run_reinforce(resume=True, opponent="selfplay"):
+def _minmax_curriculum_ratio(iteration, enabled, warmup_iters):
+    if not enabled:
+        return 1.0
+    if warmup_iters <= 0:
+        return 1.0
+    return min(1.0, iteration / warmup_iters)
+
+
+def _evaluate_dnn_vs_minmax(strategy, games_per_side):
+    if games_per_side <= 0:
+        return None
+
+    wins, losses, draws = 0, 0, 0
+    old_exploration = strategy.exploration
+    old_stand_for = strategy.stand_for
+    opponent = StrategyMinMax()
+    strategy.exploration = 0.0
+    try:
+        for side in (Board.STONE_BLACK, Board.STONE_WHITE):
+            for _ in range(games_per_side):
+                strategy.stand_for = side
+                opponent.stand_for = Board.oppo(side)
+                g = Game(Board.rand_generate_a_position(), strategy, opponent)
+                g.step_to_end()
+                if g.winner == strategy.stand_for:
+                    wins += 1
+                elif g.winner == opponent.stand_for:
+                    losses += 1
+                else:
+                    draws += 1
+    finally:
+        strategy.exploration = old_exploration
+        strategy.stand_for = old_stand_for
+        opponent.close()
+
+    total = wins + losses + draws
+    return {
+        "win_rate": wins / total,
+        "lose_rate": losses / total,
+        "draw_rate": draws / total,
+        "total": total,
+    }
+
+
+def _write_rl_metrics(writer, strategy, step):
+    writer.add_scalar("train/rl_global_step", strategy.brain.rl_global_step, step)
+    writer.add_scalar("train/rl_train_count", strategy.brain.rl_train_count, step)
+    for name, value in strategy.brain.last_rl_metrics.items():
+        writer.add_scalar("train/%s" % name, value, step)
+
+
+def _rl_checkpoint_step(iteration):
+    timestamp = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
+    return int(timestamp) * 1000 + iteration
+
+
+def run_reinforce(
+    resume=True,
+    opponent="selfplay",
+    iterations=100,
+    episodes_per_iter=None,
+    eval_games_per_side=2,
+    eval_interval=5,
+    checkpoint_interval=10,
+    minmax_curriculum=True,
+    minmax_curriculum_iters=20,
+):
     """强化学习主循环（无显示器环境；日志写入 ``summary/reinforce/``）。"""
     if opponent not in ("selfplay", "minmax"):
         raise ValueError("opponent must be 'selfplay' or 'minmax'")
@@ -91,10 +157,14 @@ def run_reinforce(resume=True, opponent="selfplay"):
         file = latest_checkpoint(SL_BRAIN_DIR)
         part_vars = True
     s1 = StrategyDNN(is_train=False, is_revive=True, is_rl=True, from_file=file, part_vars=part_vars)
+    if opponent == "minmax":
+        s1.configure_exploration(final_exp=0.05, anneal_steps=cfg.REINFORCE_PERIOD * max(minmax_curriculum_iters, 1))
     print("I was born from", file)
 
     if opponent == "minmax":
-        s2 = StrategyMinMax()
+        minmax_strategy = StrategyMinMax()
+        rand_strategy = StrategyRand()
+        s2 = minmax_strategy
         print("vs. StrategyMinMax")
     else:
         if len(oppo_pool) != 0:
@@ -107,15 +177,21 @@ def run_reinforce(resume=True, opponent="selfplay"):
         s2 = StrategyDNN(is_train=False, is_revive=True, is_rl=False, from_file=file, part_vars=part_vars)
         print("vs.", file)
 
-    iter_n = 100
+    iter_n = iterations
     try:
         for i in range(iter_n):
             print("iter:", i)
             win1, win2, draw = 0, 0, 0
             step_counter, explo_counter = 0, 0
-            episodes = cfg.REINFORCE_PERIOD
+            minmax_games, rand_games = 0, 0
+            episodes = episodes_per_iter or cfg.REINFORCE_PERIOD
+            minmax_ratio = _minmax_curriculum_ratio(i, minmax_curriculum and opponent == "minmax", minmax_curriculum_iters)
             for _ in range(episodes):
                 s1.stand_for = random.choice([Board.STONE_BLACK, Board.STONE_WHITE])
+                if opponent == "minmax":
+                    s2 = minmax_strategy if random.random() < minmax_ratio else rand_strategy
+                    minmax_games += 1 if s2 is minmax_strategy else 0
+                    rand_games += 1 if s2 is rand_strategy else 0
                 s2.stand_for = Board.oppo(s1.stand_for)
 
                 g = Game(Board.rand_generate_a_position(), s1, s2, observer=s1)
@@ -137,6 +213,9 @@ def run_reinforce(resume=True, opponent="selfplay"):
                 s2 = StrategyDNN(is_train=False, is_revive=True, is_rl=False, from_file=file, part_vars=False)
                 print("vs.", file)
 
+            if opponent == "minmax" and checkpoint_interval > 0 and (i + 1) % checkpoint_interval == 0:
+                s1.mind_clone(os.path.join(RL_BRAIN_DIR, FILE_PREFIX), _rl_checkpoint_step(i + 1))
+
             total = win1 + win2 + draw
             win1_r = win1 / total
             win2_r = win2 / total
@@ -152,7 +231,27 @@ def run_reinforce(resume=True, opponent="selfplay"):
             writer.add_scalar("reinforce/avg_exploration", explo_counter / episodes, i)
             writer.add_scalar("reinforce/win_ratio", s1.win_ratio, i)
             writer.add_text("reinforce/opponent", opponent, i)
+            writer.add_scalar("train/win_rate", win1_r, i)
+            writer.add_scalar("train/lose_rate", win2_r, i)
+            writer.add_scalar("train/draw_rate", draw_r, i)
+            writer.add_scalar("train/minmax_ratio", minmax_ratio, i)
+            writer.add_scalar("train/minmax_games", minmax_games, i)
+            writer.add_scalar("train/rand_games", rand_games, i)
+            _write_rl_metrics(writer, s1, i)
+
+            if opponent == "minmax" and eval_interval > 0 and (i + 1) % eval_interval == 0:
+                eval_result = _evaluate_dnn_vs_minmax(s1, eval_games_per_side)
+                if eval_result is not None:
+                    writer.add_scalar("eval/vs_minmax_win_rate", eval_result["win_rate"], i)
+                    writer.add_scalar("eval/vs_minmax_lose_rate", eval_result["lose_rate"], i)
+                    writer.add_scalar("eval/vs_minmax_draw_rate", eval_result["draw_rate"], i)
+                    print(
+                        "eval vs minmax, win: %.3f, lose: %.3f, draw: %.3f"
+                        % (eval_result["win_rate"], eval_result["lose_rate"], eval_result["draw_rate"])
+                    )
     finally:
+        if opponent == "minmax":
+            s1.mind_clone(os.path.join(RL_BRAIN_DIR, FILE_PREFIX), _rl_checkpoint_step(iter_n))
         writer.flush()
         writer.close()
 

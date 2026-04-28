@@ -434,13 +434,18 @@ class StrategyMinMax(Strategy):
 
 
 class Auditor(object):
+    """对局观察者接口，用于让训练器旁听一局棋的生命周期。"""
+
     def on_episode_start(self):
+        """一局新棋开始前调用，通常用于清空上一局的轨迹缓存。"""
         pass
 
     def swallow(self, who, st0, st1, **kwargs):
+        """每步落子后调用，记录行棋方以及落子前后的棋盘。"""
         pass
 
     def absorb(self, winner, **kwargs):
+        """对局结束后调用，用终局胜负吸收本局轨迹并触发训练。"""
         pass
 
 

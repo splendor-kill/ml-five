@@ -19,6 +19,15 @@ class StrategyDNN(Strategy, Auditor):
         self.brain = DCNN3(is_train, is_revive, is_rl)
         self.brain.run(from_file, part_vars)
 
+    def configure_exploration(self, init_exp=None, final_exp=None, anneal_steps=None):
+        if init_exp is not None:
+            self.init_exp = init_exp
+            self.exploration = init_exp
+        if final_exp is not None:
+            self.final_exp = final_exp
+        if anneal_steps is not None:
+            self.anneal_steps = anneal_steps
+
     def update_at_end(self, old, new):
         if not self.needs_update():
             return
@@ -165,17 +174,13 @@ class StrategyDNN(Strategy, Auditor):
         self.brain.swallow(who, st0, st1, **kwargs)
 
     def absorb(self, winner, **kwargs):
-        self.brain.absorb(winner, stand_for=self.stand_for, **kwargs)
+        trained = self.brain.absorb(winner, stand_for=self.stand_for, **kwargs)
         self.absorb_progress += 1
         self.annealExploration()
+        return trained
 
     def annealExploration(self):
-        if self.win_ratio is not None and self.absorb_progress % 100 == 0:
-            if self.win_ratio > 1.1:
-                self.exploration += 0.002
-                self.exploration = min(self.exploration, self.init_exp)
-            elif self.win_ratio < 1/1.1:
-                self.exploration -= 0.002
-                self.exploration = max(self.exploration, self.final_exp)
+        progress = min(self.absorb_progress / self.anneal_steps, 1.0)
+        self.exploration = self.init_exp + (self.final_exp - self.init_exp) * progress
         if self.absorb_progress % 500 == 0:
             print('exploration: %.4f, temperature: %.4f' % (self.exploration, self.temperature))

@@ -36,7 +36,17 @@ def _cmd_supervised(args: argparse.Namespace) -> None:
 def _cmd_reinforce(args: argparse.Namespace) -> None:
     from tentacle.main import run_reinforce
 
-    run_reinforce(resume=not args.no_resume, opponent=args.opponent)
+    run_reinforce(
+        resume=not args.no_resume,
+        opponent=args.opponent,
+        iterations=args.iterations,
+        episodes_per_iter=args.episodes_per_iter,
+        eval_games_per_side=args.eval_games_per_side,
+        eval_interval=args.eval_interval,
+        checkpoint_interval=args.checkpoint_interval,
+        minmax_curriculum=not args.no_curriculum,
+        minmax_curriculum_iters=args.curriculum_iters,
+    )
 
 
 def _cmd_eval_supervised(args: argparse.Namespace) -> None:
@@ -217,6 +227,53 @@ def main() -> None:
         choices=["selfplay", "minmax"],
         default="selfplay",
         help="强化学习对手：selfplay 为 DNN 对手池，minmax 为固定 MinMax 对手",
+    )
+    rl_p.add_argument(
+        "--iterations",
+        type=int,
+        default=100,
+        metavar="N",
+        help="强化学习外层迭代次数",
+    )
+    rl_p.add_argument(
+        "--episodes-per-iter",
+        type=int,
+        default=None,
+        metavar="N",
+        help="每个迭代采样局数；默认使用 config.REINFORCE_PERIOD",
+    )
+    rl_p.add_argument(
+        "--eval-games-per-side",
+        type=int,
+        default=2,
+        metavar="N",
+        help="评估时 DNN 先后手各对 MinMax 下 N 局；0 表示不评估",
+    )
+    rl_p.add_argument(
+        "--eval-interval",
+        type=int,
+        default=5,
+        metavar="N",
+        help="每 N 个迭代做一次无探索 MinMax 评估；0 表示不评估",
+    )
+    rl_p.add_argument(
+        "--checkpoint-interval",
+        type=int,
+        default=10,
+        metavar="N",
+        help="MinMax 强化学习每 N 个迭代保存一次 checkpoint；0 表示只在结束保存",
+    )
+    rl_p.add_argument(
+        "--no-curriculum",
+        action="store_true",
+        help="关闭 MinMax 课程训练，采样阶段始终使用固定 MinMax",
+    )
+    rl_p.add_argument(
+        "--curriculum-iters",
+        type=int,
+        default=20,
+        metavar="N",
+        help="MinMax 课程训练从混合随机对手过渡到纯 MinMax 的迭代数",
     )
     rl_p.set_defaults(func=_cmd_reinforce)
 

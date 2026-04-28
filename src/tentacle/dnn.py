@@ -107,6 +107,8 @@ class Pre:
         self.rl_global_step = 0
         self.replay_memory_games = ReplayMemory(size=Pre.REPLAY_MEMORY_CAPACITY)
         self.rl_period_counter = 0
+        self.rl_train_count = 0
+        self.last_rl_metrics = {}
         self.arena_games_per_side = 2
 
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -477,43 +479,84 @@ class Pre:
 
     def absorb(self, winner, **kwargs):
         if len(self.observation) == 0:
-            return
+            return False
         if winner == "?":
             winner = self.inference_who_won()
         if winner == Board.STONE_BLACK or winner == Board.STONE_WHITE:
-            self._absorb(winner, **kwargs)
+            return self._absorb(winner, **kwargs)
+        return False
 
     def _absorb(self, winner, **kwargs):
         memo_one_game = []
+        rewards = []
+        stand_for = kwargs["stand_for"]
         for who, st0, st1 in self.observation:
-            if who != kwargs["stand_for"]:
+            if who != stand_for:
                 continue
             action = np.not_equal(st1.stones, st0.stones).astype(np.float32)
-            reward = 0.0
-            if winner != 0:
-                reward = 1.0 if who == winner else -1.0
+            reward = self._shape_reward(who, st0, st1)
             state, _ = self.adapt_state(st0.stones)
             memo_one_game.append((state, action, reward))
+            rewards.append(reward)
 
         if memo_one_game:
+            terminal_reward = 1.0 if stand_for == winner else -1.0
+            rewards[-1] += terminal_reward
+            discounted_rewards = self.discount_episode_rewards(rewards)
+            memo_one_game = [
+                (state, action, float(reward))
+                for (state, action, _), reward in zip(memo_one_game, discounted_rewards)
+            ]
             self.replay_memory_games.append(memo_one_game)
             self.rl_period_counter = (self.rl_period_counter + 1) % cfg.REINFORCE_PERIOD
         if not self.replay_memory_games.is_full():
-            return
+            return False
         if self.rl_period_counter != 0:
-            return
+            return False
 
         print("reinforcing...")
-        self.rl_train(opt_policy_only=False)
+        self.last_rl_metrics = self.rl_train(opt_policy_only=False)
+        self.rl_train_count += 1
         print("my mind refreshed!")
+        return True
+
+    def _shape_reward(self, who, st0, st1):
+        oppo = Board.oppo(who)
+        reward = 0.0
+        own_threat_before = Board.find_pattern_will_win(st0, who)
+        own_threat_after = Board.find_pattern_will_win(st1, who)
+        oppo_threat_before = Board.find_pattern_will_win(st0, oppo)
+        oppo_threat_after = Board.find_pattern_will_win(st1, oppo)
+        if own_threat_after and not own_threat_before:
+            reward += 0.2
+        if oppo_threat_before and not oppo_threat_after:
+            reward += 0.3
+        if oppo_threat_after and not oppo_threat_before:
+            reward -= 0.3
+        return reward
 
     def rl_train(self, opt_policy_only=True):
         assert self.replay_memory_games.is_full()
         self._ensure_net()
         self.net.train()
 
-        minibatch = 64
+        minibatch = min(64, Pre.REPLAY_MEMORY_CAPACITY)
         iterations = 8 * Pre.REPLAY_MEMORY_CAPACITY // minibatch
+        total_losses = []
+        policy_losses = []
+        policy_surrogate_losses = []
+        value_losses = []
+        reward_means = []
+        reward_mins = []
+        reward_maxes = []
+        advantage_means = []
+        advantage_stds = []
+        advantage_mins = []
+        advantage_maxes = []
+        log_prob_means = []
+        log_prob_mins = []
+        entropy_means = []
+        grad_norms = []
         for _ in range(iterations):
             samples = self.replay_memory_games.sample(minibatch)
             states = np.array([sar[0] for g in samples for sar in g], dtype=np.float32)
@@ -523,23 +566,70 @@ class Pre:
             x = self._to_tensor_states(states)
             action_t = torch.from_numpy(actions).to(self.device)
             reward_t = torch.from_numpy(rewards).to(self.device)
+            reward_t = torch.clamp(reward_t, -2.0, 2.0)
 
             logits, values = self.net(x)
             log_probs = F.log_softmax(logits, dim=1)
-            policy_ce = -(action_t * log_probs).sum(dim=1)
-            delta = reward_t - values
-            policy_loss = (policy_ce * delta.detach()).mean() + 0.001 * self._l2_reg_loss()
+            probs = torch.exp(log_probs)
+            entropy = -(probs * log_probs).sum(dim=1).mean()
+            action_log_prob = (action_t * log_probs).sum(dim=1)
+            bounded_action_log_prob = torch.clamp(action_log_prob, min=-20.0, max=0.0)
+            raw_advantage = reward_t - values.detach()
+            advantage = raw_advantage - raw_advantage.mean()
+            advantage_std = advantage.std(unbiased=False)
+            if advantage_std > 1e-6:
+                advantage = advantage / advantage_std
+            advantage = torch.clamp(advantage, -2.0, 2.0)
+            policy_loss = -(action_log_prob * advantage).mean()
+            bounded_policy_loss = -(bounded_action_log_prob * advantage).mean()
 
             if opt_policy_only:
-                total_loss = policy_loss
+                total_loss = bounded_policy_loss - 0.01 * entropy
+                value_loss = torch.zeros((), dtype=torch.float32, device=self.device)
             else:
                 value_loss = F.mse_loss(values, reward_t)
-                total_loss = policy_loss + value_loss
+                total_loss = bounded_policy_loss + value_loss - 0.01 * entropy
 
             self.optimizer.zero_grad(set_to_none=True)
             total_loss.backward()
+            grad_norm = torch.nn.utils.clip_grad_norm_(self.net.parameters(), 1.0)
             self.optimizer.step()
             self.rl_global_step += 1
+            total_losses.append(float(total_loss.detach().cpu().item()))
+            policy_losses.append(float(policy_loss.detach().cpu().item()))
+            policy_surrogate_losses.append(float(bounded_policy_loss.detach().cpu().item()))
+            value_losses.append(float(value_loss.detach().cpu().item()))
+            reward_means.append(float(reward_t.mean().detach().cpu().item()))
+            reward_mins.append(float(reward_t.min().detach().cpu().item()))
+            reward_maxes.append(float(reward_t.max().detach().cpu().item()))
+            advantage_means.append(float(advantage.mean().detach().cpu().item()))
+            advantage_stds.append(float(advantage.std(unbiased=False).detach().cpu().item()))
+            advantage_mins.append(float(advantage.min().detach().cpu().item()))
+            advantage_maxes.append(float(advantage.max().detach().cpu().item()))
+            log_prob_means.append(float(action_log_prob.mean().detach().cpu().item()))
+            log_prob_mins.append(float(action_log_prob.min().detach().cpu().item()))
+            entropy_means.append(float(entropy.detach().cpu().item()))
+            grad_norms.append(float(grad_norm.detach().cpu().item()))
+
+        return {
+            "loss_total": float(np.mean(total_losses)),
+            "loss_policy": float(np.mean(policy_losses)),
+            "loss_policy_surrogate": float(np.mean(policy_surrogate_losses)),
+            "loss_value": float(np.mean(value_losses)),
+            "reward_mean": float(np.mean(reward_means)),
+            "reward_min": float(np.min(reward_mins)),
+            "reward_max": float(np.max(reward_maxes)),
+            "advantage_mean": float(np.mean(advantage_means)),
+            "advantage_std": float(np.mean(advantage_stds)),
+            "advantage_min": float(np.min(advantage_mins)),
+            "advantage_max": float(np.max(advantage_maxes)),
+            "action_log_prob_mean": float(np.mean(log_prob_means)),
+            "action_log_prob_min": float(np.min(log_prob_mins)),
+            "entropy": float(np.mean(entropy_means)),
+            "grad_norm": float(np.mean(grad_norms)),
+            "iterations": iterations,
+            "global_step": self.rl_global_step,
+        }
 
     def void(self):
         self.observation = []

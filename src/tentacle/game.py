@@ -54,7 +54,7 @@ class Game(object):
             opponent_strat = self.strat1 if self.whose_turn != self.strat1.stand_for else self.strat2
             opponent_strat.update_at_end(None, new_board)
             if self.observer is not None:
-                self.observer.absorb(self.whose_turn)
+                self.observer.absorb(self.winner)
 
         self.board = new_board
 
