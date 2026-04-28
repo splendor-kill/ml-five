@@ -7,6 +7,7 @@ import random
 from threading import Lock, Thread
 
 import numpy as np
+from tqdm import tqdm
 
 from tentacle.board import Board
 from tentacle.checkpoint import latest_checkpoint
@@ -222,27 +223,30 @@ def run_model_match(
             else:
                 wins_black += 1
 
+    total_games = 2 * games_per_side
     try:
-        for _ in range(games_per_side):
-            s_black.stand_for = Board.STONE_BLACK
-            s_white.stand_for = Board.STONE_WHITE
-            g = Game(board_fn(), s_black, s_white)
-            g.step_to_end()
-            _record(g.winner, True)
+        with tqdm(total=total_games, desc="对弈", unit="局") as pbar:
+            for _ in range(games_per_side):
+                s_black.stand_for = Board.STONE_BLACK
+                s_white.stand_for = Board.STONE_WHITE
+                g = Game(board_fn(), s_black, s_white)
+                g.step_to_end()
+                _record(g.winner, True)
+                pbar.update(1)
 
-        for _ in range(games_per_side):
-            s_white.stand_for = Board.STONE_BLACK
-            s_black.stand_for = Board.STONE_WHITE
-            g = Game(board_fn(), s_white, s_black)
-            g.step_to_end()
-            _record(g.winner, False)
+            for _ in range(games_per_side):
+                s_white.stand_for = Board.STONE_BLACK
+                s_black.stand_for = Board.STONE_WHITE
+                g = Game(board_fn(), s_white, s_black)
+                g.step_to_end()
+                _record(g.winner, False)
+                pbar.update(1)
     finally:
         s_black.close()
         s_white.close()
 
-    total = 2 * games_per_side
     return {
-        "total": total,
+        "total": total_games,
         "wins_black": wins_black,
         "wins_white": wins_white,
         "draws": draws,

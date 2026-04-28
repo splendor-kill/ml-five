@@ -7,6 +7,7 @@ requires-python = ">=3.8"
 dependencies = [
     "torch",
     "tensorboard",
+    "tqdm",
     "setuptools<81",
     "numpy",
     "pandas",
