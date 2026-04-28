@@ -2,6 +2,7 @@ import random
 from abc import ABC, abstractmethod
 
 import numpy as np
+import torch
 from scipy.special import expit
 
 from tentacle.board import Board
@@ -284,35 +285,35 @@ class StrategyTD(StrategyProb):
     #         print(np.allclose(bak, self.output_weights))
 
     def save(self, file):
-        np.savez(
-            file,
-            hidden_weights=self.hidden_weights,
-            output_weights=self.output_weights,
-            hidden_traces=self.hidden_traces,
-            output_traces=self.output_traces,
-            features_num=self.features_num,
-            hidden_neurons_num=self.hidden_neurons_num,
-            alpha=self.alpha,
-            beta=self.beta,
-            gamma=self.gamma,
-            lambdaa=self.lambdaa,
-            epsilon=self.epsilon,
-        )
+        payload = {
+            "hidden_weights": self.hidden_weights,
+            "output_weights": self.output_weights,
+            "hidden_traces": self.hidden_traces,
+            "output_traces": self.output_traces,
+            "features_num": int(self.features_num),
+            "hidden_neurons_num": int(self.hidden_neurons_num),
+            "alpha": float(self.alpha),
+            "beta": float(self.beta),
+            "gamma": float(self.gamma),
+            "lambdaa": float(self.lambdaa),
+            "epsilon": float(self.epsilon),
+        }
+        torch.save(payload, file)
         print("save OK")
 
     def load(self, file):
-        dat = np.load(file)
-        self.hidden_weights = dat["hidden_weights"]
-        self.output_weights = dat["output_weights"]
-        self.hidden_traces = dat["hidden_traces"]
-        self.output_traces = dat["output_traces"]
-        self.features_num = dat["features_num"]
-        self.hidden_neurons_num = dat["hidden_neurons_num"]
-        self.alpha = dat["alpha"]
-        self.beta = dat["beta"]
-        self.gamma = dat["gamma"]
-        self.lambdaa = dat["lambdaa"]
-        self.epsilon = dat["epsilon"]
+        dat = torch.load(file, map_location="cpu", weights_only=False)
+        self.hidden_weights = np.asarray(dat["hidden_weights"])
+        self.output_weights = np.asarray(dat["output_weights"])
+        self.hidden_traces = np.asarray(dat["hidden_traces"])
+        self.output_traces = np.asarray(dat["output_traces"])
+        self.features_num = int(dat["features_num"])
+        self.hidden_neurons_num = int(dat["hidden_neurons_num"])
+        self.alpha = float(dat["alpha"])
+        self.beta = float(dat["beta"])
+        self.gamma = float(dat["gamma"])
+        self.lambdaa = float(dat["lambdaa"])
+        self.epsilon = float(dat["epsilon"])
         print("features[%d], hiddens[%d]" % (self.features_num, self.hidden_neurons_num))
         print("load OK")
 

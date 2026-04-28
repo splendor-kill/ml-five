@@ -58,11 +58,18 @@
   
   为了跑起来，你需要在代码里改些配置，主要是在 `src/tentacle/config.py` 里。</br>
   命令行统一入口为 `ml-five`（子命令）：</br>
-  * 监督学习: `uv run ml-five supervised`（默认 DCNN3；`--network pre` 可切回 dnn.Pre；`--resume` 从 checkpoint 续训）</br>
-  * 强化学习: `uv run ml-five reinforce`（原 GUI 按 F4；`--no-resume` 强制从监督学习权重起步）</br>
-  * 图形界面: `uv run ml-five gui`（或仍可用 `uv run ml-five-main`，等价于 `ml-five gui`）</br>
+  * 监督学习: `uv run ml-five supervised`（默认 DCNN3；`--network pre` 可切回 dnn.Pre；`--resume` 从 checkpoint 续训；`--arena-games-per-side N` 调整对弈评估局数）</br>
+  * 固定评估: `uv run ml-five eval-supervised`（基于 train/validation/test 文件输出 top1/top3/top5）</br>
+  * 强化学习: `uv run ml-five reinforce`（仅命令行；`--no-resume` 强制从监督学习权重起步；`--opponent minmax` 可改为对 MinMax 强化）</br>
+  * 图形界面: `uv run ml-five gui --strategy minmax`（或 `uv run ml-five-main --strategy dnn --ckpt rl_brain/`）：**仅人机**；程序策略/模型由命令参数指定，`--ckpt` 可传 checkpoint 目录或具体 `.pt` 文件。启动后默认 human 执黑直接开始第一局；窗口内 `F2` 表示 human 执黑重新开始，`F3` 表示 human 执白重新开始，任何时候按都会清除当前局并重开；黑方永远先行。中文标题/说明依赖系统字体：可安装 `fonts-noto-cjk` 或文泉驿字体</br>
+  * 程序对弈: `uv run ml-five match -b dnn -w minmax`（无 GUI；`--games-per-side N`；`--black-ckpt` / `--white-ckpt` 指定 DNN 目录或 checkpoint；`--empty-start` 空盘开局）</br>
+  * Gomocup 网络引擎进程: `uv run ml-five-server`（与本地 GUI 无关）</br>
+  * GUI / match 中 `dnn` 加载 PyTorch checkpoint，不再使用 `brain1.npz/brain2.npz`</br>
+  * TD 策略参数文件为 `brain1.pt/brain2.pt`（仅 `match` 等仍可选用 `td`）</br>
+  训练过程通过 TensorBoard 记录到 `summary/` 目录：</br>
+  * 启动监控: `uv run tensorboard --logdir summary --port 6006`</br>
+  * 监督学习会记录 `loss_*`、`accuracy/top3/top5`，以及 `vs_rand_*` / `vs_minmax_*` 胜率曲线</br>
   仍可直接运行: `uv run python src/tentacle/dnn3.py` 等脚本，行为与原先一致。</br>
-  参与到gomocup manager: `uv run ml-five-server` (或 `uv run python src/tentacle/server.py`)
 
 
 ### 5. 下一步想做的

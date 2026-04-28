@@ -79,7 +79,6 @@ class Pre:
     RL_BRAIN_DIR = cfg.RL_BRAIN_DIR
     BRAIN_CHECKPOINT_FILE = cfg.BRAIN_CHECKPOINT_FILE
     SUMMARY_DIR = cfg.SUMMARY_DIR
-    STAT_FILE = cfg.STAT_FILE
     MID_VIS_FILE = cfg.MID_VIS_FILE
     DATA_SET_DIR = cfg.DATA_SET_DIR
     DATA_SET_FILE = cfg.DATA_SET_FILE
@@ -101,14 +100,14 @@ class Pre:
         self.ds_valid = None
         self.ds_test = None
         self.loss_window = RingBuffer(10)
-        self.stat = []
-        self.acc_vs_size = []
         self.gap = 0.0
         self.observation = []
+        self.tb_writer = None
 
         self.rl_global_step = 0
         self.replay_memory_games = ReplayMemory(size=Pre.REPLAY_MEMORY_CAPACITY)
         self.rl_period_counter = 0
+        self.arena_games_per_side = 2
 
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.net = None
@@ -168,21 +167,100 @@ class Pre:
         return data_set.next_batch(batch_size)
 
     def do_eval(self, data_set):
+        return self.do_eval_topk(data_set)["top1"]
+
+    def do_eval_topk(self, data_set, topk=(1, 3, 5)):
         self._ensure_net()
         self.net.eval()
+        topk = tuple(sorted(set(int(k) for k in topk if int(k) > 0)))
+        if not topk:
+            raise ValueError("topk must contain positive integers")
         batch_size = Pre.BATCH_SIZE
         steps_per_epoch = max(data_set.num_examples // batch_size, 1)
         num_examples = steps_per_epoch * batch_size
-        correct = 0
+        k_max = min(max(topk), Pre.NUM_ACTIONS)
+        correct = {k: 0 for k in topk}
         with torch.no_grad():
             for _ in range(steps_per_epoch):
                 states_feed, actions_feed = self.fill_feed_dict(data_set, batch_size)
                 x = self._to_tensor_states(states_feed)
                 y = torch.from_numpy(np.asarray(actions_feed).ravel()).to(self.device, dtype=torch.long)
                 logits, _ = self.net(x)
-                pred = torch.argmax(logits, dim=1)
-                correct += int((pred == y).sum().item())
-        return correct / (num_examples or 1)
+                top_idx = torch.topk(logits, k=k_max, dim=1).indices
+                for k in topk:
+                    k_eff = min(k, k_max)
+                    hit = (top_idx[:, :k_eff] == y.unsqueeze(1)).any(dim=1)
+                    correct[k] += int(hit.sum().item())
+        return {f"top{k}": correct[k] / (num_examples or 1) for k in topk}
+
+    def build_dataset_from_rows(self, rows):
+        ds = []
+        for row in rows:
+            state, action = self.forge(row)
+            ds.append((state, action))
+        ds = np.array(ds, dtype=object)
+        h, w, c = self.get_input_shape()
+        return DataSet(np.vstack(ds[:, 0]).reshape((-1, h, w, c)), np.vstack(ds[:, 1]))
+
+    def load_dataset_full(self, filename):
+        content = []
+        with open(filename) as csvfile:
+            reader = csv.reader(csvfile)
+            for line in reader:
+                content.append([float(i) for i in line])
+        content = np.array(content)
+        print("load data(full):", content.shape)
+        a = content[:, :-4]
+        b = np.ascontiguousarray(a).view(np.dtype((np.void, a.dtype.itemsize * a.shape[1])))
+        _, idx = np.unique(b, return_index=True)
+        unique_a = content[idx]
+        print("unique(full):", unique_a.shape)
+        return unique_a
+
+    def evaluate_fixed_splits(self, train_file=None, valid_file=None, test_file=None):
+        train_file = train_file or Pre.DATA_SET_TRAIN
+        valid_file = valid_file or Pre.DATA_SET_VALID
+        test_file = test_file or Pre.DATA_SET_TEST
+        metrics = {}
+        for name, file in (("train", train_file), ("valid", valid_file), ("test", test_file)):
+            rows = self.load_dataset_full(file)
+            ds = self.build_dataset_from_rows(rows)
+            metrics[name] = self.do_eval_topk(ds)
+        return metrics
+
+    def evaluate_vs_opponents(self, games_per_side=2):
+        if games_per_side <= 0:
+            raise ValueError("games_per_side must be positive")
+        from tentacle.game import Game
+        from tentacle.strategy import StrategyMinMax, StrategyRand
+        from tentacle.strategy_dnn import StrategyDNN
+
+        me = StrategyDNN(is_train=False, is_revive=True, is_rl=False, from_file=Pre.BRAIN_DIR, part_vars=False)
+        outcomes = {}
+        try:
+            for name, opp in (("rand", StrategyRand()), ("minmax", StrategyMinMax())):
+                win = lose = draw = 0
+                for side in (Board.STONE_BLACK, Board.STONE_WHITE):
+                    for _ in range(games_per_side):
+                        me.stand_for = side
+                        opp.stand_for = Board.oppo(side)
+                        g = Game(Board.rand_generate_a_position(), me, opp)
+                        g.step_to_end()
+                        if g.winner == me.stand_for:
+                            win += 1
+                        elif g.winner == Board.STONE_EMPTY:
+                            draw += 1
+                        else:
+                            lose += 1
+                total = win + lose + draw
+                outcomes[name] = {
+                    "win_rate": win / total,
+                    "lose_rate": lose / total,
+                    "draw_rate": draw / total,
+                }
+        finally:
+            me.close()
+        return outcomes
 
     def get_move_probs(self, state):
         self._ensure_net()
@@ -226,22 +304,46 @@ class Pre:
 
             self.loss_window.extend(float(loss.detach().cpu().item()))
             self.gstep += 1
+            if self.tb_writer is not None:
+                self.tb_writer.add_scalar("supervised/loss_total", float(loss.detach().cpu().item()), self.gstep)
+                self.tb_writer.add_scalar("supervised/loss_ce", float(ce.detach().cpu().item()), self.gstep)
+                self.tb_writer.add_scalar("supervised/loss_l2", float(reg.detach().cpu().item()), self.gstep)
 
             if step + 1 == Pre.NUM_STEPS:
                 self._save_checkpoint(Pre.BRAIN_CHECKPOINT_FILE, self.gstep)
-                train_accuracy = self.do_eval(self.ds_train)
-                validation_accuracy = self.do_eval(self.ds_valid)
-                self.stat.append((self.gstep, train_accuracy, validation_accuracy, 0.0))
+                train_metrics = self.do_eval_topk(self.ds_train)
+                valid_metrics = self.do_eval_topk(self.ds_valid)
+                train_accuracy = train_metrics["top1"]
+                validation_accuracy = valid_metrics["top1"]
                 self.gap = train_accuracy - validation_accuracy
+                if self.tb_writer is not None:
+                    self.tb_writer.add_scalar("supervised/accuracy_train", train_accuracy, self.gstep)
+                    self.tb_writer.add_scalar("supervised/accuracy_valid", validation_accuracy, self.gstep)
+                    self.tb_writer.add_scalar("supervised/top3_train", train_metrics["top3"], self.gstep)
+                    self.tb_writer.add_scalar("supervised/top5_train", train_metrics["top5"], self.gstep)
+                    self.tb_writer.add_scalar("supervised/top3_valid", valid_metrics["top3"], self.gstep)
+                    self.tb_writer.add_scalar("supervised/top5_valid", valid_metrics["top5"], self.gstep)
 
         duration = time.time() - start_time
-        test_accuracy = self.do_eval(self.ds_test)
+        test_metrics = self.do_eval_topk(self.ds_test)
+        test_accuracy = test_metrics["top1"]
         print(
             "part: %d, acc_train: %.3f, acc_valid: %.3f, test accuracy: %.3f, time cost: %.3f sec"
             % (ith_part, train_accuracy, validation_accuracy, test_accuracy, duration)
         )
-        self.acc_vs_size.append((ith_part * Pre.NUM_STEPS * Pre.BATCH_SIZE, train_accuracy, validation_accuracy, test_accuracy))
-        np.savez(Pre.STAT_FILE, stat=np.array(self.stat), J_train=0, J_cv=0, vs_size=self.acc_vs_size)
+        if self.tb_writer is not None:
+            seen_samples = ith_part * Pre.NUM_STEPS * Pre.BATCH_SIZE
+            self.tb_writer.add_scalar("supervised/accuracy_test", test_accuracy, self.gstep)
+            self.tb_writer.add_scalar("supervised/top3_test", test_metrics["top3"], self.gstep)
+            self.tb_writer.add_scalar("supervised/top5_test", test_metrics["top5"], self.gstep)
+            self.tb_writer.add_scalar("supervised/seen_samples", seen_samples, self.gstep)
+            vs = self.evaluate_vs_opponents(games_per_side=self.arena_games_per_side)
+            self.tb_writer.add_scalar("supervised/vs_rand_win_rate", vs["rand"]["win_rate"], self.gstep)
+            self.tb_writer.add_scalar("supervised/vs_rand_draw_rate", vs["rand"]["draw_rate"], self.gstep)
+            self.tb_writer.add_scalar("supervised/vs_rand_lose_rate", vs["rand"]["lose_rate"], self.gstep)
+            self.tb_writer.add_scalar("supervised/vs_minmax_win_rate", vs["minmax"]["win_rate"], self.gstep)
+            self.tb_writer.add_scalar("supervised/vs_minmax_draw_rate", vs["minmax"]["draw_rate"], self.gstep)
+            self.tb_writer.add_scalar("supervised/vs_minmax_lose_rate", vs["minmax"]["lose_rate"], self.gstep)
 
     def adapt(self, filename):
         gc.collect()
@@ -250,8 +352,8 @@ class Pre:
         self.ds_test = None
         gc.collect()
 
-        ds = []
         dat = self.load_dataset(filename)
+        ds = []
         for row in dat:
             state, action = self.forge(row)
             ds.append((state, action))
@@ -328,22 +430,42 @@ class Pre:
         self.net = None
         self.optimizer = None
 
-    def run(self, from_file=None, part_vars=True):
+    def run(self, from_file=None, part_vars=True, arena_games_per_side=2):
+        if arena_games_per_side <= 0:
+            raise ValueError("arena_games_per_side must be positive")
+        self.arena_games_per_side = int(arena_games_per_side)
         self._ensure_net()
         if self.is_revive:
             self.load_from_vat(from_file, part_vars)
         if self.is_train:
+            try:
+                from torch.utils.tensorboard import SummaryWriter
+            except ImportError as exc:
+                raise RuntimeError("TensorBoard unavailable. Please install `tensorboard` in this environment.") from exc
+            run_name = datetime.now().strftime("%Y%m%d-%H%M%S")
+            log_dir = os.path.join(Pre.SUMMARY_DIR, "supervised", run_name)
+            os.makedirs(log_dir, exist_ok=True)
+            self.tb_writer = SummaryWriter(log_dir=log_dir)
+            print("tensorboard logdir:", log_dir)
             epoch = 0
-            while self.loss_window.get_average() == 0.0 or self.loss_window.get_average() > 0.1:
-                print("epoch:", epoch)
-                epoch += 1
-                ith_part = 0
-                while self._has_more_data:
-                    ith_part += 1
-                    self.adapt(Pre.DATA_SET_FILE)
-                    self.train(ith_part)
-                self._file_read_index = 0
-                self._has_more_data = True
+            try:
+                while self.loss_window.get_average() == 0.0 or self.loss_window.get_average() > 0.1:
+                    print("epoch:", epoch)
+                    if self.tb_writer is not None:
+                        self.tb_writer.add_scalar("supervised/epoch", epoch, self.gstep)
+                    epoch += 1
+                    ith_part = 0
+                    while self._has_more_data:
+                        ith_part += 1
+                        self.adapt(Pre.DATA_SET_FILE)
+                        self.train(ith_part)
+                    self._file_read_index = 0
+                    self._has_more_data = True
+            finally:
+                if self.tb_writer is not None:
+                    self.tb_writer.flush()
+                    self.tb_writer.close()
+                    self.tb_writer = None
 
     def save_params(self, where, step):
         self._ensure_net()

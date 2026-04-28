@@ -6,6 +6,8 @@ readme = "README.md"
 requires-python = ">=3.8"
 dependencies = [
     "torch",
+    "tensorboard",
+    "setuptools<81",
     "numpy",
     "pandas",
     "matplotlib",

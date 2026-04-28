@@ -86,11 +86,26 @@ class StrategyDNN(Strategy, Auditor):
         state, legal = self.get_input_values(v)
         probs, raw_pred = self.brain.get_move_probs(state)
         probs = probs[0]
-        if np.allclose(probs, 0.):
-            print('output probs all 0')
-        probs *= legal
+        logits = raw_pred[0]
+        legal_idx = np.where(legal == 1)[0]
+        if legal_idx.size == 0:
+            raise ValueError("no legal moves available")
 
-        rand_loc = np.argmax(probs)
+        # Always apply legality constraint in logit space first.
+        # Otherwise a single illegal move with huge logit can collapse softmax mass.
+        masked_logits = logits[legal_idx]
+        if not np.all(np.isfinite(masked_logits)):
+            raise ValueError("non-finite logits for legal moves")
+        top_legal = int(legal_idx[np.argmax(masked_logits)])
+
+        # Build a normalized distribution over legal moves only.
+        shifted = masked_logits - np.max(masked_logits)
+        legal_probs = np.exp(shifted)
+        legal_probs = legal_probs / np.sum(legal_probs)
+        probs = np.zeros_like(probs, dtype=np.float32)
+        probs[legal_idx] = legal_probs
+
+        rand_loc = top_legal
 
         explored = False
         if self.brain.is_rl:
@@ -102,9 +117,10 @@ class StrategyDNN(Strategy, Auditor):
         loc = np.unravel_index(rand_loc, (Board.BOARD_SIZE, Board.BOARD_SIZE))
         is_legal = board.is_legal(loc[0], loc[1])
         if not is_legal:
-            print(self.stand_for, 'illegal loc:', loc, explored, repr(v), repr(probs), repr(raw_pred), game.step_counter)
-            rand_loc = np.random.choice(np.where(v == Board.STONE_EMPTY)[0], 1)[0]
-            loc = np.unravel_index(rand_loc, (Board.BOARD_SIZE, Board.BOARD_SIZE))
+            raise RuntimeError(
+                "selected illegal move: %s, explored=%s, side=%s, step=%s"
+                % (loc, explored, self.stand_for, game.step_counter)
+            )
         return loc
 
     def preferred_board(self, old, moves, context):
@@ -154,8 +170,6 @@ class StrategyDNN(Strategy, Auditor):
         self.annealExploration()
 
     def annealExploration(self):
-        ratio = max((self.anneal_steps - self.absorb_progress) / float(self.anneal_steps), 0)
-#         self.exploration = (self.init_exp - self.final_exp) * ratio + self.final_exp
         if self.win_ratio is not None and self.absorb_progress % 100 == 0:
             if self.win_ratio > 1.1:
                 self.exploration += 0.002

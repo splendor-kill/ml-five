@@ -4,7 +4,7 @@ import glob
 import os
 import queue
 import random
-from threading import Thread
+from threading import Lock, Thread
 
 import numpy as np
 
@@ -12,7 +12,6 @@ from tentacle.board import Board
 from tentacle.checkpoint import latest_checkpoint
 from tentacle.config import cfg
 from tentacle.game import Game
-from tentacle.server import net
 
 # from tentacle.strategy import StrategyNetBot
 # from tentacle.strategy import StrategyMCTS1
@@ -22,7 +21,7 @@ from tentacle.strategy_dnn import StrategyDNN
 WORK_DIR = cfg.WORK_DIR
 SL_BRAIN_DIR = cfg.BRAIN_DIR
 RL_BRAIN_DIR = cfg.RL_BRAIN_DIR
-STAT_FILE = cfg.STAT_FILE
+SUMMARY_DIR = cfg.SUMMARY_DIR
 FILE_PREFIX = cfg.FILE_PREFIX
 BRAIN1_FILE = cfg.BRAIN1_FILE
 BRAIN2_FILE = cfg.BRAIN2_FILE
@@ -38,6 +37,24 @@ def _brain_file_for_side(side):
     raise Exception("illegal arg side[%d]" % (side,))
 
 
+def _gui_dnn_checkpoint():
+    """人机对弈用：优先加载 ``rl_brain/``，否则 ``zero/``（与 ``run_reinforce`` 的 resume 逻辑一致）。"""
+    ckpt = latest_checkpoint(RL_BRAIN_DIR)
+    if ckpt is not None:
+        return ckpt, False
+    ckpt = latest_checkpoint(SL_BRAIN_DIR)
+    if ckpt is not None:
+        return ckpt, True
+    return None, True
+
+
+def _part_vars_for_resolved_checkpoint(resolved_ckpt: str) -> bool:
+    """位于 ``rl_brain/`` 下的权重与 ``run_reinforce`` 一致用 ``part_vars=False``。"""
+    rl_abs = os.path.abspath(RL_BRAIN_DIR)
+    ck_abs = os.path.abspath(resolved_ckpt)
+    return not (ck_abs == rl_abs or ck_abs.startswith(rl_abs + os.sep))
+
+
 def _get_mindsets(folder, prefix):
     mindsets = set()
     pattern = os.path.join(folder, prefix) + "*"
@@ -47,8 +64,21 @@ def _get_mindsets(folder, prefix):
     return list(mindsets)
 
 
-def run_reinforce(resume=True):
-    """强化学习主循环（与 GUI 中 F4 相同逻辑，可在无显示器环境下运行）。"""
+def run_reinforce(resume=True, opponent="selfplay"):
+    """强化学习主循环（无显示器环境；日志写入 ``summary/reinforce/``）。"""
+    if opponent not in ("selfplay", "minmax"):
+        raise ValueError("opponent must be 'selfplay' or 'minmax'")
+    try:
+        from torch.utils.tensorboard import SummaryWriter
+    except ImportError as exc:
+        raise RuntimeError("TensorBoard unavailable. Please install `tensorboard` in this environment.") from exc
+
+    run_name = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+    log_dir = os.path.join(SUMMARY_DIR, "reinforce", run_name)
+    os.makedirs(log_dir, exist_ok=True)
+    writer = SummaryWriter(log_dir=log_dir)
+    print("tensorboard logdir:", log_dir)
+
     os.makedirs(RL_BRAIN_DIR, exist_ok=True)
     oppo_pool = _get_mindsets(RL_BRAIN_DIR, FILE_PREFIX)
 
@@ -62,64 +92,74 @@ def run_reinforce(resume=True):
     s1 = StrategyDNN(is_train=False, is_revive=True, is_rl=True, from_file=file, part_vars=part_vars)
     print("I was born from", file)
 
-    if len(oppo_pool) != 0:
-        file = random.choice(oppo_pool)
-        file = os.path.join(RL_BRAIN_DIR, file)
-        part_vars = False
+    if opponent == "minmax":
+        s2 = StrategyMinMax()
+        print("vs. StrategyMinMax")
     else:
-        file = latest_checkpoint(SL_BRAIN_DIR)
-        part_vars = True
-    s2 = StrategyDNN(is_train=False, is_revive=True, is_rl=False, from_file=file, part_vars=part_vars)
-    print("vs.", file)
-
-    stat = []
-
-    iter_n = 100
-    for i in range(iter_n):
-        print("iter:", i)
-        win1, win2, draw = 0, 0, 0
-        step_counter, explo_counter = 0, 0
-        episodes = cfg.REINFORCE_PERIOD
-        for _ in range(episodes):
-            s1.stand_for = random.choice([Board.STONE_BLACK, Board.STONE_WHITE])
-            s2.stand_for = Board.oppo(s1.stand_for)
-
-            g = Game(Board.rand_generate_a_position(), s1, s2, observer=s1)
-            g.step_to_end()
-            win1 += 1 if g.winner == s1.stand_for else 0
-            win2 += 1 if g.winner == s2.stand_for else 0
-            draw += 1 if g.winner == Board.STONE_EMPTY else 0
-            s1.win_ratio = win1 / win2 if win2 != 0 else 1.0
-            step_counter += g.step_counter
-            explo_counter += g.exploration_counter
-
-        if s1.win_ratio > 1.1:
-            file = FILE_PREFIX + "-" + str(i)
-            s1.mind_clone(os.path.join(RL_BRAIN_DIR, FILE_PREFIX), i)
-            oppo_pool.append(file)
+        if len(oppo_pool) != 0:
             file = random.choice(oppo_pool)
             file = os.path.join(RL_BRAIN_DIR, file)
-            s2.close()
-            s2 = StrategyDNN(is_train=False, is_revive=True, is_rl=False, from_file=file, part_vars=False)
-            print("vs.", file)
+            part_vars = False
+        else:
+            file = latest_checkpoint(SL_BRAIN_DIR)
+            part_vars = True
+        s2 = StrategyDNN(is_train=False, is_revive=True, is_rl=False, from_file=file, part_vars=part_vars)
+        print("vs.", file)
 
-        if i % 1 == 0 or i + 1 == iter_n:
+    iter_n = 100
+    try:
+        for i in range(iter_n):
+            print("iter:", i)
+            win1, win2, draw = 0, 0, 0
+            step_counter, explo_counter = 0, 0
+            episodes = cfg.REINFORCE_PERIOD
+            for _ in range(episodes):
+                s1.stand_for = random.choice([Board.STONE_BLACK, Board.STONE_WHITE])
+                s2.stand_for = Board.oppo(s1.stand_for)
+
+                g = Game(Board.rand_generate_a_position(), s1, s2, observer=s1)
+                g.step_to_end()
+                win1 += 1 if g.winner == s1.stand_for else 0
+                win2 += 1 if g.winner == s2.stand_for else 0
+                draw += 1 if g.winner == Board.STONE_EMPTY else 0
+                s1.win_ratio = win1 / win2 if win2 != 0 else 1.0
+                step_counter += g.step_counter
+                explo_counter += g.exploration_counter
+
+            if opponent == "selfplay" and s1.win_ratio > 1.1:
+                file = FILE_PREFIX + "-" + str(i)
+                s1.mind_clone(os.path.join(RL_BRAIN_DIR, FILE_PREFIX), i)
+                oppo_pool.append(file)
+                file = random.choice(oppo_pool)
+                file = os.path.join(RL_BRAIN_DIR, file)
+                s2.close()
+                s2 = StrategyDNN(is_train=False, is_revive=True, is_rl=False, from_file=file, part_vars=False)
+                print("vs.", file)
+
             total = win1 + win2 + draw
             win1_r = win1 / total
             win2_r = win2 / total
             draw_r = draw / total
             print("iter:%d, win: %.3f, lose: %.3f, draw: %.3f, t: %.3f" % (i, win1_r, win2_r, draw_r, s1.temperature))
-            stat.append([win1_r, win2_r, draw_r])
             print("avg. steps[%f], avg. explos[%f]" % (step_counter / episodes, explo_counter / episodes))
 
-        if i % 10 == 0 or i + 1 == iter_n:
-            np.savez(STAT_FILE, stat=np.array(stat))
+            writer.add_scalar("reinforce/win_rate", win1_r, i)
+            writer.add_scalar("reinforce/lose_rate", win2_r, i)
+            writer.add_scalar("reinforce/draw_rate", draw_r, i)
+            writer.add_scalar("reinforce/temperature", s1.temperature, i)
+            writer.add_scalar("reinforce/avg_steps", step_counter / episodes, i)
+            writer.add_scalar("reinforce/avg_exploration", explo_counter / episodes, i)
+            writer.add_scalar("reinforce/win_ratio", s1.win_ratio, i)
+            writer.add_text("reinforce/opponent", opponent, i)
+    finally:
+        writer.flush()
+        writer.close()
 
     print("rl done. you can try it.")
     return s1
 
 
-def create_strategy_by_name(name, side):
+def create_strategy_by_name(name, side, dnn_checkpoint=None):
     if name == "rand":
         strategy = StrategyRand()
     elif name == "minmax":
@@ -128,12 +168,126 @@ def create_strategy_by_name(name, side):
         strategy = StrategyTD(1, 1)
         strategy.load(_brain_file_for_side(side))
     elif name == "dnn":
-        strategy = StrategyDNN()
-        strategy.load(_brain_file_for_side(side))
+        if dnn_checkpoint is not None:
+            ckpt = latest_checkpoint(dnn_checkpoint)
+            if ckpt is None:
+                raise RuntimeError("未找到 DNN checkpoint：%r" % (dnn_checkpoint,))
+            part_vars = _part_vars_for_resolved_checkpoint(ckpt)
+        else:
+            ckpt, part_vars = _gui_dnn_checkpoint()
+            if ckpt is None:
+                raise RuntimeError("未找到 DNN checkpoint：请将 .pt 放入 rl_brain/ 或 zero/")
+        strategy = StrategyDNN(is_train=False, is_revive=True, is_rl=False, from_file=ckpt, part_vars=part_vars)
     else:
         raise Exception("unsupported strategy[%s]" % (name,))
     strategy.stand_for = side
     return strategy
+
+
+def run_model_match(
+    black_name,
+    white_name,
+    games_per_side,
+    *,
+    black_ckpt=None,
+    white_ckpt=None,
+    random_start=True,
+):
+    """
+    双方程序对弈统计：每个先后手各下 ``games_per_side`` 局（与 ``dnn.Pre.evaluate_vs_opponents`` 结构一致）。
+    """
+    if games_per_side <= 0:
+        raise ValueError("games_per_side must be positive")
+
+    s_black = create_strategy_by_name(black_name, Board.STONE_BLACK, dnn_checkpoint=black_ckpt)
+    s_white = create_strategy_by_name(white_name, Board.STONE_WHITE, dnn_checkpoint=white_ckpt)
+    s_black.is_learning = False
+    s_white.is_learning = False
+
+    wins_black = wins_white = draws = 0
+    board_fn = Board.rand_generate_a_position if random_start else Board
+
+    def _record(winner, logical_black_is_cli_black):
+        nonlocal wins_black, wins_white, draws
+        if winner == Board.STONE_EMPTY:
+            draws += 1
+        elif logical_black_is_cli_black:
+            if winner == Board.STONE_BLACK:
+                wins_black += 1
+            else:
+                wins_white += 1
+        else:
+            if winner == Board.STONE_BLACK:
+                wins_white += 1
+            else:
+                wins_black += 1
+
+    try:
+        for _ in range(games_per_side):
+            s_black.stand_for = Board.STONE_BLACK
+            s_white.stand_for = Board.STONE_WHITE
+            g = Game(board_fn(), s_black, s_white)
+            g.step_to_end()
+            _record(g.winner, True)
+
+        for _ in range(games_per_side):
+            s_white.stand_for = Board.STONE_BLACK
+            s_black.stand_for = Board.STONE_WHITE
+            g = Game(board_fn(), s_white, s_black)
+            g.step_to_end()
+            _record(g.winner, False)
+    finally:
+        s_black.close()
+        s_white.close()
+
+    total = 2 * games_per_side
+    return {
+        "total": total,
+        "wins_black": wins_black,
+        "wins_white": wins_white,
+        "draws": draws,
+        "black_strategy": black_name,
+        "white_strategy": white_name,
+    }
+
+
+def _apply_matplotlib_cjk_font(matplotlib_module):
+    """为 matplotlib 选择系统里常见的中文 sans-serif 字体。"""
+    from matplotlib import font_manager
+
+    matplotlib_module.rcParams["axes.unicode_minus"] = False
+
+    candidates = [
+        "Noto Sans CJK SC",
+        "WenQuanYi Micro Hei",
+        "Microsoft YaHei",
+        "PingFang SC",
+        "SimHei",
+    ]
+    chosen = None
+    for family in candidates:
+        try:
+            font_manager.findfont(font_manager.FontProperties(family=family), fallback_to_default=False)
+            chosen = family
+            break
+        except ValueError:
+            continue
+
+    if chosen is None:
+        import warnings
+
+        warnings.warn(
+            "未检测到常用中文字体：请安装 fonts-noto-cjk 或 fonts-wqy-microhei。",
+            UserWarning,
+            stacklevel=2,
+        )
+        return None
+
+    sans = matplotlib_module.rcParams.get("font.sans-serif", [])
+    if isinstance(sans, str):
+        sans = [sans]
+    matplotlib_module.rcParams["font.sans-serif"] = [chosen] + [x for x in sans if x != chosen]
+    return chosen
 
 
 def _ensure_matplotlib_loaded():
@@ -155,17 +309,38 @@ def _ensure_matplotlib_loaded():
     import matplotlib.patches as mpl_patches
     import matplotlib.pyplot as mpl_plt
 
+    _apply_matplotlib_cjk_font(matplotlib)
+
     patches = mpl_patches
     plt = mpl_plt
 
 
+def _strategy_label_cn(name):
+    return {"dnn": "DNN", "rand": "随机", "minmax": "MinMax", "td": "TD"}.get(name, name)
+
+
+class _GameRestarted(Exception):
+    pass
+
+
+class _GuiGameQueue:
+    def __init__(self, gui, game_id):
+        self.gui = gui
+        self.game_id = game_id
+
+    def put(self, msg):
+        with self.gui._game_lock:
+            if self.game_id != self.gui.active_game_id:
+                return
+        self.gui.msg_queue.put((self.game_id, *msg))
+
+
 class Gui(object):
     STATE_IDLE = 0
-    STATE_TRAINING = 1
     STATE_PLAY = 2
     RESULT_MSG = {Board.STONE_BLACK: "Black Win", Board.STONE_WHITE: "White Win", Board.STONE_EMPTY: "Draw"}
 
-    def __init__(self, black_strategy=None, white_strategy=None):
+    def __init__(self, opponent_strategy, opponent_checkpoint=None):
         _ensure_matplotlib_loaded()
         import matplotlib.rcsetup as rcsetup
 
@@ -185,12 +360,12 @@ class Gui(object):
 
         self.fig = plt.figure(figsize=((size + 1) / 2.54, (size + 1) / 2.54), facecolor="#FFE991")
         try:
-            self.fig.canvas.manager.set_window_title("Training")
+            self.fig.canvas.manager.set_window_title("ml-five 人机对弈")
         except AttributeError:
             pass
         span = 1.0 / (size + 1)
         self.ax = self.fig.add_axes(
-            (span, span, (size - 1) * span, (size - 1) * span),
+            (span, span, (size - 1) * span, (size - 1.4) * span),
             aspect="equal",
             facecolor="none",
             xticks=range(size),
@@ -199,7 +374,6 @@ class Gui(object):
             yticklabels=range(1, 1 + size),
         )
         self.ax.grid(color="k", linestyle="-", linewidth=1)
-        self.ax.set_title("press T for training")
 
         self.black_stone = patches.Circle(
             (0, 0), 0.45, facecolor="#131814", edgecolor=(0.8, 0.8, 0.8, 1), linewidth=2, clip_on=False, zorder=10
@@ -213,109 +387,109 @@ class Gui(object):
         self.fig.canvas.mpl_connect("button_press_event", self._button_press)
 
         self.state = Gui.STATE_IDLE
-        self.strategy_1 = None
-        self.strategy_2 = None
-        if black_strategy is not None:
-            self.strategy_1 = create_strategy_by_name(black_strategy, Board.STONE_BLACK)
-        if white_strategy is not None:
-            self.strategy_2 = create_strategy_by_name(white_strategy, Board.STONE_WHITE)
+        self.opponent_strategy = opponent_strategy
+        self.opponent_checkpoint = opponent_checkpoint
+        self.current_human_side = None
         self.game = None
-        self._human_move_queue = queue.Queue(maxsize=8)
+        self.active_game_id = 0
+        self._game_lock = Lock()
+        self._human_move_queue = None
         self.all_stones = []
-        self.oppo_pool = []
         self.msg_queue = queue.Queue(maxsize=100)
+        self._set_idle_title()
 
         self.timer = self.fig.canvas.new_timer(interval=50)
         self.timer.add_callback(self.on_update)
         self.timer.start()
+        self.vs_human(Board.STONE_BLACK)
 
         plt.show()
 
     def _handle_close(self, event):
-        if self.strategy_1 is not None:
-            self.strategy_1.close()
-        if self.strategy_2 is not None:
-            self.strategy_2.close()
+        with self._game_lock:
+            self._cancel_current_game_locked()
+
+    @staticmethod
+    def _side_label(side):
+        if side == Board.STONE_BLACK:
+            return "黑"
+        if side == Board.STONE_WHITE:
+            return "白"
+        raise Exception("illegal arg side[%d]" % (side,))
+
+    def _set_idle_title(self, result=None):
+        title = "F2: human 执黑重新开始 | F3: human 执白重新开始；黑方先行，对手: %s" % (
+            _strategy_label_cn(self.opponent_strategy),
+        )
+        if result is not None:
+            title = "%s | %s" % (result, title)
+        self.ax.set_title(title, fontsize=10, pad=12)
 
     def _key_press(self, event):
         # print('press', event.key)
-        if event.key == "0":
-            # clear
-            pass
-        elif event.key == "e":
-            # edit mode
-            pass
-        elif event.key == "1":
-            self.strategy_1 = StrategyTD(1, 1)
-            self.strategy_1.load(BRAIN1_FILE)
-            self.strategy_1.stand_for = Board.STONE_BLACK
-        elif event.key == "2":
-            self.strategy_2 = StrategyTD(1, 1)
-            self.strategy_2.load(BRAIN2_FILE)
-            self.strategy_2.stand_for = Board.STONE_WHITE
-        elif event.key == "3":
-            if self.strategy_1 is None or self.strategy_2 is None:
-                print("save: 请先加载双方策略（快捷键 1/2/4/5）")
-            else:
-                self.strategy_1.save(BRAIN1_FILE)
-                self.strategy_2.save(BRAIN2_FILE)
-        elif event.key == "4":
-            self.strategy_1 = StrategyDNN()
-            self.strategy_1.load(BRAIN1_FILE)
-            self.strategy_1.stand_for = Board.STONE_BLACK
-        elif event.key == "5":
-            self.strategy_2 = StrategyDNN()
-            self.strategy_2.load(BRAIN2_FILE)
-            self.strategy_2.stand_for = Board.STONE_WHITE
-        elif event.key == "t":
-            self.state = Gui.STATE_TRAINING
-            s1, s2 = self.init_both_sides()
-            self.train1(s1, s2)  # god view
-        elif event.key == "r":
-            self.learn_from_2_teachers()
-        elif event.key == "f2":
-            self.state = Gui.STATE_PLAY
+        if event.key == "f2":
             self.vs_human(Board.STONE_BLACK)
         elif event.key == "f3":
-            self.state = Gui.STATE_PLAY
             self.vs_human(Board.STONE_WHITE)
-        elif event.key == "f1":
-            pass
-        elif event.key == "m":
-            self.match()
-        elif event.key == "f4":
-            self.reinforce()
-        elif event.key == "f5":
-            self.join_net_match()
-        elif event.key == "f12":
-            plt.pause(600)
+        else:
+            return
 
     def _button_press(self, event):
         if self.state != Gui.STATE_PLAY:
             return
-        if self.game is None or not self.game.wait_human:
+        game = self.game
+        if game is None or not game.wait_human:
             return
         if (event.xdata is None) or (event.ydata is None):
             return
         size = Board.BOARD_SIZE
         i = int(max(0, min(size - 1, round(event.xdata))))
         j = int(max(0, min(size - 1, round(event.ydata))))
-        try:
-            self._human_move_queue.put_nowait((i, j))
-        except queue.Full:
-            pass
+        human_queue = self._human_move_queue
+        if human_queue is not None:
+            try:
+                human_queue.put_nowait((i, j))
+            except queue.Full:
+                pass
 
-    def _drain_human_move_queue(self):
+    @staticmethod
+    def _drain_queue(q):
         try:
             while True:
-                self._human_move_queue.get_nowait()
+                q.get_nowait()
+                q.task_done()
         except queue.Empty:
             pass
 
-    def human_pick_move_board_click(self, old, moves, game):
+    def _drain_msg_queue(self):
+        self._drain_queue(self.msg_queue)
+
+    def _cancel_current_game_locked(self):
+        if self.game is not None:
+            self.game.over = True
+            self.game.wait_human = False
+        if self._human_move_queue is not None:
+            try:
+                self._human_move_queue.put_nowait(None)
+            except queue.Full:
+                pass
+        self.game = None
+        self.current_human_side = None
+        self.state = Gui.STATE_IDLE
+        self.active_game_id += 1
+
+    def human_pick_move_board_click(self, old, moves, game, human_queue):
         """Block until the player clicks a legal intersection (GUI thread feeds ``_human_move_queue``)."""
         while True:
-            i, j = self._human_move_queue.get()
+            if game.over:
+                raise _GameRestarted
+            try:
+                item = human_queue.get(timeout=0.05)
+            except queue.Empty:
+                continue
+            if item is None:
+                raise _GameRestarted
+            i, j = item
             loc = int(i * Board.BOARD_SIZE + j)
             if 0 <= loc < old.stones.size and old.stones[loc] == Board.STONE_EMPTY:
                 return [b for b in moves if b.stones[loc] != Board.STONE_EMPTY][0]
@@ -337,38 +511,57 @@ class Gui(object):
                 return [b for b in moves if b.stones[loc] != Board.STONE_EMPTY][0]
             plt.title("invalid move")
 
-    def which_one(self, which_side):
-        if self.strategy_1 is not None and self.strategy_1.stand_for == which_side:
-            return self.strategy_1
-        elif self.strategy_2 is not None and self.strategy_2.stand_for == which_side:
-            return self.strategy_2
-        return None
-
     def vs_human(self, which_side_human_play):
-        strategy = self.which_one(Board.oppo(which_side_human_play))
-        if strategy is None or isinstance(strategy, StrategyRand):
-            strategy = self.which_one(which_side_human_play)
-        if strategy is None:
-            print("without opponent")
-            return
+        with self._game_lock:
+            self._cancel_current_game_locked()
+            game_id = self.active_game_id
+            human_queue = queue.Queue(maxsize=8)
+            self._human_move_queue = human_queue
+            self.current_human_side = which_side_human_play
+            self.state = Gui.STATE_PLAY
+        self._drain_msg_queue()
 
-        old_is_learning, old_stand_for = strategy.is_learning, strategy.stand_for
-        strategy.is_learning, strategy.stand_for = False, Board.oppo(which_side_human_play)
+        opponent_side = Board.oppo(which_side_human_play)
+        try:
+            strategy = create_strategy_by_name(
+                self.opponent_strategy,
+                opponent_side,
+                dnn_checkpoint=self.opponent_checkpoint,
+            )
+        except Exception as exc:
+            print("opponent load failed: %s" % (exc,))
+            with self._game_lock:
+                if game_id == self.active_game_id:
+                    self.current_human_side = None
+                    self.state = Gui.STATE_IDLE
+            self._set_idle_title()
+            return
+        strategy.is_learning = False
 
         s1 = strategy
-        s2 = StrategyHuman(self.human_pick_move_board_click)
+        s2 = StrategyHuman(lambda old, moves, game: self.human_pick_move_board_click(old, moves, game, human_queue))
         s2.stand_for = which_side_human_play
 
-        self._drain_human_move_queue()
+        game = Game(Board(), s1, s2, _GuiGameQueue(self, game_id))
+        with self._game_lock:
+            if game_id != self.active_game_id:
+                game.over = True
+                strategy.close()
+                return
+            self.game = game
+            self.state = Gui.STATE_PLAY
 
         def run():
             try:
-                self.game = Game(Board(), s1, s2, self.msg_queue)
-                self.game.step_to_end()
+                game.step_to_end()
+            except _GameRestarted:
+                pass
             finally:
-                self.game = None
-                self.state = Gui.STATE_IDLE
-                strategy.is_learning, strategy.stand_for = old_is_learning, old_stand_for
+                with self._game_lock:
+                    if self.game is game:
+                        self.game = None
+                        self.state = Gui.STATE_IDLE
+                strategy.close()
 
         Thread(target=run, daemon=True).start()
 
@@ -389,324 +582,6 @@ class Gui(object):
         self.all_stones.append(s)
         self.ax.add_patch(s)
 
-    def measure_perf(self, s1, s2):
-        old_epsilon1, old_is_learning1, old_stand_for1 = s1.epsilon, s1.is_learning, s1.stand_for
-        #         old_epsilon2, old_is_learning2, old_stand_for2 = s2.epsilon, s2.is_learning, s2.stand_for
-        old_is_learning2, old_stand_for2 = s2.is_learning, s2.stand_for
-        s1.epsilon, s1.is_learning, s1.stand_for = 0, False, Board.STONE_BLACK
-        #         s2.epsilon, s2.is_learning, s2.stand_for = 0, False, Board.STONE_WHITE
-        s2.is_learning, s2.stand_for = False, Board.STONE_WHITE
-
-        s3 = StrategyRand()
-
-        probs = [0, 0, 0, 0, 0, 0]
-        games = 3  # 30
-        for i in range(games):
-            # the learner s1 move first(use black)
-            s1.stand_for = Board.STONE_BLACK
-            s2.stand_for = Board.STONE_WHITE
-            g = Game(Board(), s1, s2)
-            g.step_to_end()
-            if g.winner == Board.STONE_BLACK:
-                probs[0] += 1
-            elif g.winner == Board.STONE_EMPTY:
-                probs[1] += 1
-
-            # the learner s1 move second(use white)
-            s1.stand_for = Board.STONE_WHITE
-            s2.stand_for = Board.STONE_BLACK
-            g = Game(Board(), s1, s2)
-            g.step_to_end()
-            if g.winner == Board.STONE_WHITE:
-                probs[2] += 1
-            elif g.winner == Board.STONE_EMPTY:
-                probs[3] += 1
-
-            # the learner s1 move first vs. random opponent
-            s1.stand_for = Board.STONE_BLACK
-            s3.stand_for = Board.STONE_WHITE
-            g = Game(Board(), s1, s3)
-            g.step_to_end()
-            if g.winner == Board.STONE_BLACK:
-                probs[4] += 1
-
-            # the learner s1 move second vs. random opponent
-            s1.stand_for = Board.STONE_WHITE
-            s3.stand_for = Board.STONE_BLACK
-            g = Game(Board(), s1, s3)
-            g.step_to_end()
-            if g.winner == Board.STONE_WHITE:
-                probs[5] += 1
-
-        probs = [i / games for i in probs]
-        print(probs)
-
-        s1.epsilon, s1.is_learning, s1.stand_for = old_epsilon1, old_is_learning1, old_stand_for1
-        #         s2.epsilon, s2.is_learning, s2.stand_for = old_epsilon2, old_is_learning2, old_stand_for2
-        s2.is_learning, s2.stand_for = old_is_learning2, old_stand_for2
-        return probs
-
-    def draw_perf(self, perf):
-        series = ["black win", "black draw", "white win", "white draw", "PvR 1st", "PvR 2nd"]
-        colors = ["r", "b", "g", "c", "m", "y"]
-        plt.figure()
-        axes = plt.gca()
-        axes.set_ylim([-0.1, 1.1])
-        for i in range(1, len(perf)):
-            plt.plot(perf[0], perf[i], label=series[i - 1], color=colors[i - 1])
-        plt.legend(loc="upper left", bbox_to_anchor=(1, 1))
-        plt.show()
-        #         plt.savefig('selfplay_random_{0}loss.png'.format(p1.lossval))
-
-        plt.figure(self.fig.number)
-
-    def init_both_sides(self):
-        # feat = Board.BOARD_SIZE_SQ * 2 + 2
-
-        # if self.strategy_1 is None:
-        #     s1 = StrategyTD(feat, feat * 2)
-        #     s1.stand_for = Board.STONE_BLACK
-        #     s1.alpha = 0.3
-        #     s1.beta = 0.3
-        #     s1.lambdaa = 0.05
-        #     s1.epsilon = 0.3
-        #     self.strategy_1 = s1
-        # else:
-        #     s1 = self.strategy_1
-        #     s1.epsilon = 0.3
-
-        if self.strategy_1 is None:
-            file = latest_checkpoint(RL_BRAIN_DIR)
-            s1 = StrategyDNN(from_file=file, part_vars=True)
-            # s1 = StrategyMCTS1()
-            self.strategy_1 = s1
-        else:
-            s1 = self.strategy_1
-
-        s1.is_learning = True
-        s1.stand_for = Board.STONE_BLACK
-
-        #         if self.strategy_2 is None:
-        #             s2 = StrategyTD(feat, feat * 2)
-        #             s2.stand_for = Board.STONE_WHITE
-        #             self.strategy_2 = s2
-        #         else:
-        #             s2 = self.strategy_2
-        #             s2.is_learning = False
-        s2 = StrategyRand()
-
-        #         s2 = StrategyMinMax()
-        s2.stand_for = Board.STONE_WHITE
-        self.strategy_2 = s2
-
-        return s1, s2
-
-    def match(self):
-        s1, s2 = self.strategy_1, self.strategy_2
-        if s1 is None or s2 is None:
-            print("match: 请先加载双方策略（快捷键 1–5 或训练流程）")
-            return
-        print("player1:", s1.__class__.__name__)
-        print("player2:", s2.__class__.__name__)
-
-        probs = np.zeros(6)
-        games = 100  # 30
-        for i in range(games):
-            print(i)
-            s1.stand_for = Board.STONE_BLACK
-            s2.stand_for = Board.STONE_WHITE
-            g = Game(Board.rand_generate_a_position(), s1, s2)
-            g.step_to_end()
-            if g.winner == Board.STONE_BLACK:
-                probs[0] += 1
-            elif g.winner == Board.STONE_WHITE:
-                probs[1] += 1
-            else:
-                probs[2] += 1
-
-            s1.stand_for = Board.STONE_WHITE
-            s2.stand_for = Board.STONE_BLACK
-            g = Game(Board.rand_generate_a_position(), s1, s2)
-            g.step_to_end()
-            if g.winner == Board.STONE_WHITE:
-                probs[3] += 1
-            elif g.winner == Board.STONE_BLACK:
-                probs[4] += 1
-            else:
-                probs[5] += 1
-
-        print("total play:", games)
-        print(probs)
-
-    def train1(self, s1, s2):
-        """Run training for one batch of episodes (see ``episodes`` inside).
-
-        Returns
-        -------
-        tuple
-            ``(strategy, win_rate)``: ``strategy`` is ``self.which_one(side)`` for
-            the side with more wins (black if ``win1 >= win2``, else white), or
-            ``None`` if that side has no strategy; ``win_rate`` is
-            ``max(win1, win2) / total`` with ``total = win1 + win2 + draw``.
-        """
-
-        max_explore_rate = 0.95
-
-        win1, win2, draw = 0, 0, 0
-        step_counter, explo_counter = 0, 0
-        begin = datetime.datetime.now()
-        episodes = 1
-        # samples = 100
-        # interval = episodes // samples
-        # perf = [[] for _ in range(7)]
-        learner = s1 if s1.is_learning else s2
-        # oppo = self.which_one(Board.oppo(learner.stand_for))
-        stat_win = []
-        # past_me = learner.mind_clone()
-        for i in range(episodes):
-            # if (i + 1) % interval == 0:
-            #     print(np.allclose(s1.hidden_weights, past_me.hidden_weights))
-            #     probs = self.measure_perf(learner, oppo)
-            #     perf[0].append(i)
-            #     for idx, x in enumerate(probs):
-            #         perf[idx + 1].append(x)
-
-            learner.epsilon = max_explore_rate * np.exp(-5 * i / episodes)  # * (1 if i < episodes//2 else 0.3) #
-            g = Game(Board(), s1, s2)
-            g.step_to_end()
-            win1 += 1 if g.winner == Board.STONE_BLACK else 0
-            win2 += 1 if g.winner == Board.STONE_WHITE else 0
-            draw += 1 if g.winner == Board.STONE_EMPTY else 0
-
-            stat_win.append(win1 - win2 - draw)
-            #             rec.append(win1)
-            step_counter += g.step_counter
-            explo_counter += g.exploration_counter
-            #             print('steps[%d], explos[%d]' % (g.step_counter, g.exploration_counter))
-            print("training...%d" % i)
-
-        total = win1 + win2 + draw
-        print("black win: %f" % (win1 / total))
-        print("white win: %f" % (win2 / total))
-        print("draw: %f" % (draw / total))
-
-        print("avg. steps[%f], avg. explos[%f]" % (step_counter / episodes, explo_counter / episodes))
-
-        end = datetime.datetime.now()
-        diff = end - begin
-        print("time cost[%f]s, avg.[%f]s" % (diff.total_seconds(), diff.total_seconds() / episodes))
-
-        # with open('stat-result-win.txt', 'w') as f:
-        #     f.write(repr(stat_win))
-        #         print(perf)
-        #         self.draw_perf(perf)
-
-        #         np.set_printoptions(threshold=np.nan, formatter={'float_kind' : lambda x: "%.4f" % x})
-        #         with open('stat-result-net-train-errors.txt', 'w') as f:
-        #             f.write(repr(np.array(s1.errors)))
-
-        winner = Board.STONE_BLACK if win1 >= win2 else Board.STONE_WHITE
-        return self.which_one(winner), max(win1, win2) / total
-        # plt.title('press F3 start')
-
-    #         print(len(rec))
-    #         plt.plot(rec)
-
-    def learn_from_2_teachers(self):
-        s1 = StrategyMinMax()
-        s1.stand_for = Board.STONE_BLACK
-        self.strategy_1 = s1
-
-        s2 = StrategyMinMax()
-        s2.stand_for = Board.STONE_WHITE
-        self.strategy_2 = s2
-
-        win1, win2, draw = 0, 0, 0
-        step_counter, explo_counter = 0, 0
-        begin = datetime.datetime.now()
-        episodes = 10000
-        for i in range(episodes):
-            g = Game(Board(), s1, s2)
-            g.step_to_end()
-            win1 += 1 if g.winner == Board.STONE_BLACK else 0
-            win2 += 1 if g.winner == Board.STONE_WHITE else 0
-            draw += 1 if g.winner == Board.STONE_EMPTY else 0
-
-            step_counter += g.step_counter
-            explo_counter += g.exploration_counter
-            print("training...%d" % i)
-
-        total = win1 + win2 + draw
-        print("black win: %f" % (win1 / total))
-        print("white win: %f" % (win2 / total))
-        print("draw: %f" % (draw / total))
-
-        print("avg. steps[%f], avg. explos[%f]" % (step_counter / episodes, explo_counter / episodes))
-
-        end = datetime.datetime.now()
-        diff = end - begin
-        print("time cost[%f]s, avg.[%f]s" % (diff.total_seconds(), diff.total_seconds() / episodes))
-
-        s1.save(BRAIN1_FILE)
-
-    def from_new_start_point(self, winner, s1, s2):
-        """
-        Returns:
-        ------------
-        s1 : Strategy
-            the learner
-        s2 : Strategy
-            the teacher
-        """
-        if s1 == winner:
-            s2 = s1.mind_clone()
-        if s2 == winner:
-            s1 = s2.mind_clone()
-
-        # way 1: learner s1 uses the winner's side color
-        s1.stand_for = winner.stand_for
-        # way 2: s1.stand_for = Board.oppo(winner.stand_for)
-        # way 3: s1.stand_for = np.random.choice(np.array([Board.STONE_BLACK, Board.STONE_WHITE]))
-        s2.stand_for = Board.oppo(s1.stand_for)
-
-        s1.is_learning = True
-        s2.is_learning = False
-        return s1, s2
-
-    def train2(self):
-        """train many times"""
-        s1, s2 = self.init_both_sides()
-
-        win_probs = []
-        begin = datetime.datetime.now()
-        counter = 0
-        while True:
-            print("epoch...%d" % counter)
-
-            winner, win_prob = self.train1(s1, s2)
-            win_probs.append(win_prob)
-
-            counter += 1
-            if counter >= 10:
-                break
-            s1, s2 = self.from_new_start_point(winner, s1, s2)
-
-        end = datetime.datetime.now()
-        diff = end - begin
-        print("total time cost[%f] hour" % (diff.total_seconds() / 3600))
-
-        print("win probs: ", win_probs)
-
-        plt.title("press F3 start")
-
-    def reinforce(self, resume=True):
-        s1 = run_reinforce(resume=resume)
-        self.oppo_pool = self.get_mindsets(RL_BRAIN_DIR, FILE_PREFIX)
-        self.strategy_1 = self.strategy_2 = s1
-
-    def get_mindsets(self, folder, prefix):
-        return _get_mindsets(folder, prefix)
-
     def on_update(self):
         i = 0
         redraw = False
@@ -718,6 +593,11 @@ class Gui(object):
                 break
             if msg is None:
                 break
+            game_id, *payload = msg
+            if game_id != self.active_game_id:
+                self.msg_queue.task_done()
+                continue
+            msg = tuple(payload)
 
             #             print(msg[0], ' ', msg[1] if len(msg) > 1 else '')
             if msg[0] == "start":
@@ -727,10 +607,8 @@ class Gui(object):
                 self.show(msg[1], msg[2])
                 redraw = True
             elif msg[0] == "end":
-                self.ax.set_title(Gui.RESULT_MSG[msg[1]])
-                redraw = True
-            elif msg[0] == "net_error":
-                self.ax.set_title("net: " + str(msg[1])[:120])
+                self.current_human_side = None
+                self._set_idle_title(Gui.RESULT_MSG[msg[1]])
                 redraw = True
 
             self.msg_queue.task_done()
@@ -741,25 +619,10 @@ class Gui(object):
         if redraw:
             self.fig.canvas.draw()
 
-    def join_net_match(self):
-        def _net_worker(q):
-            try:
-                net(q)
-            except Exception as e:
-                print("net thread:", repr(e))
-                if q is not None:
-                    try:
-                        q.put(("net_error", repr(e)))
-                    except Exception:
-                        pass
 
-        net_t = Thread(target=_net_worker, args=(self.msg_queue,), daemon=True)
-        net_t.start()
-
-
-def launch_gui(black_strategy=None, white_strategy=None):
-    """启动图形界面（人机对弈、快捷键训练等）。"""
-    Gui(black_strategy=black_strategy, white_strategy=white_strategy)
+def launch_gui(opponent_strategy, opponent_checkpoint=None):
+    """启动图形界面：一名 human 对一个命令行指定的程序策略。"""
+    Gui(opponent_strategy=opponent_strategy, opponent_checkpoint=opponent_checkpoint)
 
 
 if __name__ == "__main__":
@@ -768,10 +631,11 @@ if __name__ == "__main__":
     from tentacle.cli import main as cli_main
 
     if len(sys.argv) == 1:
-        launch_gui()
+        sys.argv = [sys.argv[0], "gui"]
+        cli_main()
     else:
         first = sys.argv[1]
-        if first in ("gui", "supervised", "reinforce", "-h", "--help"):
+        if first in ("gui", "supervised", "reinforce", "match", "-h", "--help"):
             cli_main()
         else:
             sys.argv = [sys.argv[0], "gui", *sys.argv[1:]]
