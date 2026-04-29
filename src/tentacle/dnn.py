@@ -96,12 +96,14 @@ class Pre:
         self.is_revive = is_revive
         self.is_rl = is_rl
 
-        self._file_read_index = 0
-        self._has_more_data = True
+        self.seen_samples = 0
         self.gstep = 0
         self.ds_train = None
         self.ds_valid = None
         self.ds_test = None
+        self._train_chunk_cache = {}
+        self._prepared_arrays = {}
+        self.prepared_dir = None
         self.loss_window = RingBuffer(10)
         self.gap = 0.0
         self.observation = []
@@ -148,6 +150,7 @@ class Pre:
             "model": self.net.state_dict(),
             "optimizer": self.optimizer.state_dict() if self.optimizer is not None else None,
             "gstep": self.gstep,
+            "seen_samples": self.seen_samples,
             "rl_global_step": self.rl_global_step,
         }
         torch.save(payload, path)
@@ -159,6 +162,7 @@ class Pre:
         if self.optimizer is not None and payload.get("optimizer") is not None:
             self.optimizer.load_state_dict(payload["optimizer"])
         self.gstep = int(payload.get("gstep", self.gstep))
+        self.seen_samples = int(payload.get("seen_samples", self.gstep * Pre.BATCH_SIZE))
         self.rl_global_step = int(payload.get("rl_global_step", self.rl_global_step))
 
     def load_from_vat(self, from_file=None, part_vars=True):
@@ -182,36 +186,263 @@ class Pre:
         if not topk:
             raise ValueError("topk must contain positive integers")
         batch_size = Pre.BATCH_SIZE
-        steps_per_epoch = max(data_set.num_examples // batch_size, 1)
-        num_examples = steps_per_epoch * batch_size
+        num_examples = data_set.num_examples
         k_max = min(max(topk), Pre.NUM_ACTIONS)
         correct = {k: 0 for k in topk}
+        legal_top1 = 0
+        rank_sum = 0.0
+        entropy_sum = 0.0
         with torch.no_grad():
-            for _ in range(steps_per_epoch):
-                states_feed, actions_feed = self.fill_feed_dict(data_set, batch_size)
+            for start in range(0, num_examples, batch_size):
+                end = min(start + batch_size, num_examples)
+                states_feed = data_set.images[start:end]
+                actions_feed = data_set.labels[start:end]
                 x = self._to_tensor_states(states_feed)
                 y = torch.from_numpy(np.asarray(actions_feed).ravel()).to(self.device, dtype=torch.long)
                 logits, _ = self.net(x)
                 top_idx = torch.topk(logits, k=k_max, dim=1).indices
+                top1 = top_idx[:, 0]
+                legal_mask = torch.from_numpy(np.asarray(states_feed[..., 2], dtype=bool)).to(self.device)
+                legal_top1 += int(legal_mask.flatten(1).gather(1, top1.unsqueeze(1)).sum().item())
+                ranks = (logits > logits.gather(1, y.unsqueeze(1))).sum(dim=1) + 1
+                rank_sum += float(ranks.sum().item())
+                probs = F.softmax(logits, dim=1)
+                log_probs = F.log_softmax(logits, dim=1)
+                entropy_sum += float((-(probs * log_probs).sum(dim=1)).sum().item())
                 for k in topk:
                     k_eff = min(k, k_max)
                     hit = (top_idx[:, :k_eff] == y.unsqueeze(1)).any(dim=1)
                     correct[k] += int(hit.sum().item())
-        return {f"top{k}": correct[k] / (num_examples or 1) for k in topk}
+        metrics = {f"top{k}": correct[k] / num_examples for k in topk}
+        metrics["legal_top1"] = legal_top1 / num_examples
+        metrics["target_rank_mean"] = rank_sum / num_examples
+        metrics["policy_entropy"] = entropy_sum / num_examples
+        return metrics
+
+    def write_supervised_metrics(self, prefix, metrics):
+        if self.tb_writer is None:
+            return
+        for name, value in metrics.items():
+            self.tb_writer.add_scalar("%s/%s" % (prefix, name), value, self.gstep)
 
     def build_dataset_from_rows(self, rows):
         ds = []
         for row in rows:
-            try:
-                state, action = self.forge(row)
-            except ValueError:
-                continue
+            state, action = self.forge(row)
             ds.append((state, action))
         ds = np.array(ds, dtype=object)
         if ds.size == 0:
             raise RuntimeError("build_dataset_from_rows: no valid forged rows")
         h, w, c = self.get_input_shape()
         return DataSet(np.vstack(ds[:, 0]).reshape((-1, h, w, c)), np.vstack(ds[:, 1]))
+
+    def _dataset_chunk_starts(self, filename):
+        line_count = 0
+        with open(filename) as csvfile:
+            for line_count, _ in enumerate(csvfile, start=1):
+                pass
+        if line_count == 0:
+            raise RuntimeError("dataset is empty: %s" % (filename,))
+        return list(range(0, line_count, Pre.DATASET_CAPACITY))
+
+    def _train_chunk_starts(self):
+        if self.prepared_dir is not None:
+            _, labels = self.load_prepared_split("train")
+            return list(range(0, labels.shape[0], Pre.DATASET_CAPACITY))
+        return self._dataset_chunk_starts(Pre.DATA_SET_FILE)
+
+    def load_fixed_eval_sets(self):
+        if self.prepared_dir is not None:
+            valid_images, valid_labels = self.load_prepared_split("valid")
+            test_images, test_labels = self.load_prepared_split("test")
+            self.ds_valid = DataSet(valid_images, valid_labels)
+            self.ds_test = DataSet(test_images, test_labels)
+        else:
+            valid_rows = self.load_dataset_full(Pre.DATA_SET_VALID)
+            test_rows = self.load_dataset_full(Pre.DATA_SET_TEST)
+            self.ds_valid = self.build_dataset_from_rows(valid_rows)
+            self.ds_test = self.build_dataset_from_rows(test_rows)
+        print("fixed valid:", self.ds_valid.images.shape, self.ds_valid.labels.shape)
+        print("fixed test:", self.ds_test.images.shape, self.ds_test.labels.shape)
+
+    @staticmethod
+    def prepared_split_paths(prepared_dir, split):
+        return (
+            os.path.join(prepared_dir, "%s_images.npy" % (split,)),
+            os.path.join(prepared_dir, "%s_labels.npy" % (split,)),
+        )
+
+    @classmethod
+    def prepared_dir_is_complete(cls, prepared_dir):
+        for split in ("train", "valid", "test"):
+            image_file, label_file = cls.prepared_split_paths(prepared_dir, split)
+            if not os.path.exists(image_file) or not os.path.exists(label_file):
+                return False
+        return True
+
+    @classmethod
+    def default_prepared_dir(cls):
+        return os.path.join(cls.DATA_SET_DIR, "prepared")
+
+    @classmethod
+    def resolve_prepared_dir(cls, prepared_dir):
+        if prepared_dir is not None:
+            if not cls.prepared_dir_is_complete(prepared_dir):
+                raise FileNotFoundError("prepared dataset is incomplete: %s" % (prepared_dir,))
+            return prepared_dir
+        default_dir = cls.default_prepared_dir()
+        if cls.prepared_dir_is_complete(default_dir):
+            return default_dir
+        return None
+
+    def load_prepared_split(self, split):
+        if split in self._prepared_arrays:
+            return self._prepared_arrays[split]
+        image_file, label_file = self.prepared_split_paths(self.prepared_dir, split)
+        images = np.load(image_file, mmap_mode="r")
+        labels = np.load(label_file, mmap_mode="r")
+        if images.shape[0] != labels.shape[0]:
+            raise ValueError("prepared split has mismatched images/labels: %s" % (split,))
+        self._prepared_arrays[split] = (images, labels)
+        return images, labels
+
+    @classmethod
+    def prepare_supervised_file(cls, input_file, output_dir, split, overwrite=False):
+        os.makedirs(output_dir, exist_ok=True)
+        image_file, label_file = cls.prepared_split_paths(output_dir, split)
+        for path in (image_file, label_file):
+            if os.path.exists(path) and not overwrite:
+                raise FileExistsError("prepared output already exists: %s" % (path,))
+
+        row_count = 0
+        sq = None
+        with open(input_file, newline="") as src:
+            reader = csv.reader(src)
+            for row_index, fields in enumerate(reader):
+                row_sq = infer_board_sq_from_row_length(len(fields))
+                if row_sq is None:
+                    raise ValueError("unexpected supervised row width in %s row %d: %d" % (input_file, row_index, len(fields)))
+                if sq is None:
+                    sq = row_sq
+                elif sq != row_sq:
+                    raise ValueError("mixed board sizes in %s row %d" % (input_file, row_index))
+                row_count += 1
+        if row_count == 0:
+            raise RuntimeError("dataset is empty: %s" % (input_file,))
+
+        side = int(math.isqrt(sq))
+        tmp_image_file = image_file + ".tmp"
+        tmp_label_file = label_file + ".tmp"
+        success = False
+        model = cls(is_train=False, is_revive=False, is_rl=False)
+        try:
+            images = np.lib.format.open_memmap(
+                tmp_image_file,
+                mode="w+",
+                dtype=np.float32,
+                shape=(row_count, side, side, cls.NUM_CHANNELS),
+            )
+            labels = np.lib.format.open_memmap(
+                tmp_label_file,
+                mode="w+",
+                dtype=np.int64,
+                shape=(row_count, 1),
+            )
+            with open(input_file, newline="") as src:
+                reader = csv.reader(src)
+                for row_index, fields in enumerate(reader):
+                    row = np.array([float(i) for i in fields], dtype=float)
+                    state, action = model.forge(row)
+                    images[row_index] = state.reshape(side, side, cls.NUM_CHANNELS)
+                    labels[row_index, 0] = action
+            images.flush()
+            labels.flush()
+            del images
+            del labels
+            os.replace(tmp_image_file, image_file)
+            os.replace(tmp_label_file, label_file)
+            success = True
+        finally:
+            if not success:
+                for path in (tmp_image_file, tmp_label_file):
+                    if os.path.exists(path):
+                        os.remove(path)
+        return {"rows": row_count, "image_file": image_file, "label_file": label_file}
+
+    @classmethod
+    def prepare_supervised_dataset(cls, output_dir=None, overwrite=False):
+        output_dir = output_dir or cls.default_prepared_dir()
+        specs = (
+            ("train", cls.DATA_SET_TRAIN),
+            ("valid", cls.DATA_SET_VALID),
+            ("test", cls.DATA_SET_TEST),
+        )
+        stats = {}
+        for split, input_file in specs:
+            stats[split] = cls.prepare_supervised_file(input_file, output_dir, split, overwrite=overwrite)
+        return {"output_dir": output_dir, "splits": stats}
+
+    @staticmethod
+    def clean_supervised_csv(input_file, output_file, overwrite=False):
+        input_path = os.path.abspath(input_file)
+        output_path = os.path.abspath(output_file)
+        if input_path == output_path:
+            raise ValueError("input_file and output_file must be different")
+        if os.path.exists(output_path) and not overwrite:
+            raise FileExistsError("output file already exists: %s" % (output_file,))
+
+        kept = 0
+        duplicates = 0
+        label_by_board = {}
+        tmp_output = output_path + ".tmp"
+        success = False
+        try:
+            with open(input_path, newline="") as src, open(tmp_output, "w", newline="") as dst:
+                reader = csv.reader(src)
+                writer = csv.writer(dst)
+                for row_index, fields in enumerate(reader):
+                    row = np.array([float(i) for i in fields], dtype=float)
+                    sq = infer_board_sq_from_row_length(int(row.size))
+                    if sq is None:
+                        raise ValueError(
+                            "unexpected supervised row width in %s row %d: %d" % (input_file, row_index, row.size)
+                        )
+                    move = supervised_move_index(row)
+                    if move is None:
+                        raise ValueError("could not parse supervised move in %s row %d" % (input_file, row_index))
+                    if row[:sq][move] != Board.STONE_EMPTY:
+                        raise ValueError("supervised move is occupied in %s row %d: %d" % (input_file, row_index, move))
+                    board_key = np.ascontiguousarray(row[:sq]).tobytes()
+                    if board_key in label_by_board:
+                        previous_move = label_by_board[board_key]
+                        if previous_move != move:
+                            raise ValueError(
+                                "conflicting supervised moves in %s row %d: board maps to %d and %d"
+                                % (input_file, row_index, previous_move, move)
+                            )
+                        duplicates += 1
+                        continue
+                    label_by_board[board_key] = move
+                    writer.writerow(fields)
+                    kept += 1
+            os.replace(tmp_output, output_path)
+            success = True
+        finally:
+            if not success and os.path.exists(tmp_output):
+                os.remove(tmp_output)
+        return {"kept": kept, "duplicates": duplicates}
+
+    def _validate_supervised_content(self, content, source):
+        sq = infer_board_sq_from_row_length(int(content.shape[1]))
+        if sq is None:
+            raise ValueError("unexpected supervised row width in %s: %d" % (source, content.shape[1]))
+
+        for row_index, row in enumerate(content):
+            move = supervised_move_index(row)
+            if move is None:
+                raise ValueError("could not parse supervised move in %s row %d" % (source, row_index))
+            if row[:sq][move] != Board.STONE_EMPTY:
+                raise ValueError("supervised move is occupied in %s row %d: %d" % (source, row_index, move))
 
     def load_dataset_full(self, filename):
         content = []
@@ -221,12 +452,8 @@ class Pre:
                 content.append([float(i) for i in line])
         content = np.array(content)
         print("load data(full):", content.shape)
-        a = content[:, :-4]
-        b = np.ascontiguousarray(a).view(np.dtype((np.void, a.dtype.itemsize * a.shape[1])))
-        _, idx = np.unique(b, return_index=True)
-        unique_a = content[idx]
-        print("unique(full):", unique_a.shape)
-        return unique_a
+        self._validate_supervised_content(content, filename)
+        return content
 
     def evaluate_fixed_splits(self, train_file=None, valid_file=None, test_file=None):
         train_file = train_file or Pre.DATA_SET_TRAIN
@@ -294,13 +521,13 @@ class Pre:
     def train(self, ith_part):
         self._ensure_net()
         self.net.train()
-        Pre.NUM_STEPS = max(self.ds_train.num_examples // Pre.BATCH_SIZE, 1)
+        Pre.NUM_STEPS = math.ceil(self.ds_train.num_examples / Pre.BATCH_SIZE)
         print("total num steps:", Pre.NUM_STEPS)
         start_time = time.time()
-        train_accuracy = 0.0
-        validation_accuracy = 0.0
-        for step in range(Pre.NUM_STEPS):
-            states_feed, actions_feed = self.fill_feed_dict(self.ds_train)
+        for step, start in enumerate(range(0, self.ds_train.num_examples, Pre.BATCH_SIZE)):
+            end = min(start + Pre.BATCH_SIZE, self.ds_train.num_examples)
+            states_feed = self.ds_train.images[start:end]
+            actions_feed = self.ds_train.labels[start:end]
             x = self._to_tensor_states(states_feed)
             y = torch.from_numpy(np.asarray(actions_feed).ravel()).to(self.device, dtype=torch.long)
 
@@ -315,109 +542,117 @@ class Pre:
 
             self.loss_window.extend(float(loss.detach().cpu().item()))
             self.gstep += 1
+            self.seen_samples += int(actions_feed.shape[0])
             if self.tb_writer is not None:
                 self.tb_writer.add_scalar("supervised/loss_total", float(loss.detach().cpu().item()), self.gstep)
                 self.tb_writer.add_scalar("supervised/loss_ce", float(ce.detach().cpu().item()), self.gstep)
                 self.tb_writer.add_scalar("supervised/loss_l2", float(reg.detach().cpu().item()), self.gstep)
 
-            if step + 1 == Pre.NUM_STEPS:
-                self._save_checkpoint(Pre.BRAIN_CHECKPOINT_FILE, self.gstep)
-                train_metrics = self.do_eval_topk(self.ds_train)
-                valid_metrics = self.do_eval_topk(self.ds_valid)
-                train_accuracy = train_metrics["top1"]
-                validation_accuracy = valid_metrics["top1"]
-                self.gap = train_accuracy - validation_accuracy
-                if self.tb_writer is not None:
-                    self.tb_writer.add_scalar("supervised/accuracy_train", train_accuracy, self.gstep)
-                    self.tb_writer.add_scalar("supervised/accuracy_valid", validation_accuracy, self.gstep)
-                    self.tb_writer.add_scalar("supervised/top3_train", train_metrics["top3"], self.gstep)
-                    self.tb_writer.add_scalar("supervised/top5_train", train_metrics["top5"], self.gstep)
-                    self.tb_writer.add_scalar("supervised/top3_valid", valid_metrics["top3"], self.gstep)
-                    self.tb_writer.add_scalar("supervised/top5_valid", valid_metrics["top5"], self.gstep)
-
         duration = time.time() - start_time
-        test_metrics = self.do_eval_topk(self.ds_test)
-        test_accuracy = test_metrics["top1"]
-        print(
-            "part: %d, acc_train: %.3f, acc_valid: %.3f, test accuracy: %.3f, time cost: %.3f sec"
-            % (ith_part, train_accuracy, validation_accuracy, test_accuracy, duration)
-        )
+        print("part: %d, time cost: %.3f sec" % (ith_part, duration))
         if self.tb_writer is not None:
-            seen_samples = ith_part * Pre.NUM_STEPS * Pre.BATCH_SIZE
-            self.tb_writer.add_scalar("supervised/accuracy_test", test_accuracy, self.gstep)
-            self.tb_writer.add_scalar("supervised/top3_test", test_metrics["top3"], self.gstep)
-            self.tb_writer.add_scalar("supervised/top5_test", test_metrics["top5"], self.gstep)
-            self.tb_writer.add_scalar("supervised/seen_samples", seen_samples, self.gstep)
-            vs = self.evaluate_vs_opponents(games_per_side=self.arena_games_per_side)
-            self.tb_writer.add_scalar("supervised/vs_rand_win_rate", vs["rand"]["win_rate"], self.gstep)
-            self.tb_writer.add_scalar("supervised/vs_rand_draw_rate", vs["rand"]["draw_rate"], self.gstep)
-            self.tb_writer.add_scalar("supervised/vs_rand_lose_rate", vs["rand"]["lose_rate"], self.gstep)
-            self.tb_writer.add_scalar("supervised/vs_minmax_win_rate", vs["minmax"]["win_rate"], self.gstep)
-            self.tb_writer.add_scalar("supervised/vs_minmax_draw_rate", vs["minmax"]["draw_rate"], self.gstep)
-            self.tb_writer.add_scalar("supervised/vs_minmax_lose_rate", vs["minmax"]["lose_rate"], self.gstep)
+            self.tb_writer.add_scalar("supervised/seen_samples", self.seen_samples, self.gstep)
 
-    def adapt(self, filename):
+    def write_validation_metrics(self):
+        valid_metrics = self.do_eval_topk(self.ds_valid)
+        print(
+            "valid: top1=%.3f top3=%.3f top5=%.3f legal=%.3f rank=%.2f entropy=%.3f"
+            % (
+                valid_metrics["top1"],
+                valid_metrics["top3"],
+                valid_metrics["top5"],
+                valid_metrics["legal_top1"],
+                valid_metrics["target_rank_mean"],
+                valid_metrics["policy_entropy"],
+            )
+        )
+        self.write_supervised_metrics("supervised/valid", valid_metrics)
+
+    def write_test_metrics(self):
+        test_metrics = self.do_eval_topk(self.ds_test)
+        print(
+            "final test: top1=%.3f top3=%.3f top5=%.3f legal=%.3f rank=%.2f entropy=%.3f"
+            % (
+                test_metrics["top1"],
+                test_metrics["top3"],
+                test_metrics["top5"],
+                test_metrics["legal_top1"],
+                test_metrics["target_rank_mean"],
+                test_metrics["policy_entropy"],
+            )
+        )
+        self.write_supervised_metrics("supervised/test", test_metrics)
+
+    def write_arena_metrics(self):
+        if self.arena_games_per_side <= 0:
+            return
+        vs = self.evaluate_vs_opponents(games_per_side=self.arena_games_per_side)
+        if self.tb_writer is None:
+            return
+        self.tb_writer.add_scalar("supervised/vs_rand_win_rate", vs["rand"]["win_rate"], self.gstep)
+        self.tb_writer.add_scalar("supervised/vs_rand_draw_rate", vs["rand"]["draw_rate"], self.gstep)
+        self.tb_writer.add_scalar("supervised/vs_rand_lose_rate", vs["rand"]["lose_rate"], self.gstep)
+        self.tb_writer.add_scalar("supervised/vs_minmax_win_rate", vs["minmax"]["win_rate"], self.gstep)
+        self.tb_writer.add_scalar("supervised/vs_minmax_draw_rate", vs["minmax"]["draw_rate"], self.gstep)
+        self.tb_writer.add_scalar("supervised/vs_minmax_lose_rate", vs["minmax"]["lose_rate"], self.gstep)
+
+    def adapt(self, filename, start_index):
         gc.collect()
         self.ds_train = None
-        self.ds_valid = None
-        self.ds_test = None
         gc.collect()
 
-        dat = self.load_dataset(filename)
-        ds = []
-        for row in dat:
-            try:
-                state, action = self.forge(row)
-            except ValueError:
-                continue
-            ds.append((state, action))
-        ds = np.array(ds, dtype=object)
-        if ds.size == 0:
-            raise RuntimeError("adapt: no rows produced valid (state, action) pairs")
-        np.random.shuffle(ds)
-
-        size = ds.shape[0]
-        train_size = int(size * 0.8)
-        train = ds[:train_size, :]
-        test = ds[train_size:, :]
-        validation_size = int(train.shape[0] * 0.2)
-        validation = train[:validation_size, :]
-        train = train[validation_size:, :]
-
-        h, w, c = self.get_input_shape()
-        self.ds_train = DataSet(np.vstack(train[:, 0]).reshape((-1, h, w, c)), np.vstack(train[:, 1]))
-        self.ds_valid = DataSet(np.vstack(validation[:, 0]).reshape((-1, h, w, c)), np.vstack(validation[:, 1]))
-        self.ds_test = DataSet(np.vstack(test[:, 0]).reshape((-1, h, w, c)), np.vstack(test[:, 1]))
+        base_ds = self.load_train_chunk_dataset(filename, start_index)
+        perm = np.random.permutation(base_ds.num_examples)
+        self.ds_train = DataSet(base_ds.images[perm], base_ds.labels[perm])
 
         print(self.ds_train.images.shape, self.ds_train.labels.shape)
-        print(self.ds_valid.images.shape, self.ds_valid.labels.shape)
-        print(self.ds_test.images.shape, self.ds_test.labels.shape)
 
-    def load_dataset(self, filename):
+    def load_train_chunk_dataset(self, filename, start_index):
+        if self.prepared_dir is not None:
+            key = (os.path.abspath(self.prepared_dir), "train", int(start_index))
+            if key in self._train_chunk_cache:
+                cached = self._train_chunk_cache[key]
+                print("load data(cache):", cached.images.shape, cached.labels.shape)
+                return cached
+            train_images, train_labels = self.load_prepared_split("train")
+            end_index = min(start_index + Pre.DATASET_CAPACITY, train_images.shape[0])
+            dataset = DataSet(
+                np.asarray(train_images[start_index:end_index]).copy(),
+                np.asarray(train_labels[start_index:end_index]).copy(),
+            )
+            self._train_chunk_cache[key] = dataset
+            cache_size = sum(ds.images.nbytes + ds.labels.nbytes for ds in self._train_chunk_cache.values())
+            print("cache train chunk: %d chunks, %.1f MiB" % (len(self._train_chunk_cache), cache_size / 1024 / 1024))
+            return dataset
+
+        key = (os.path.abspath(filename), int(start_index))
+        if key in self._train_chunk_cache:
+            cached = self._train_chunk_cache[key]
+            print("load data(cache):", cached.images.shape, cached.labels.shape)
+            return cached
+
+        content = self.load_dataset(filename, start_index)
+        dataset = self.build_dataset_from_rows(content)
+        self._train_chunk_cache[key] = dataset
+        cache_size = sum(ds.images.nbytes + ds.labels.nbytes for ds in self._train_chunk_cache.values())
+        print("cache train chunk: %d chunks, %.1f MiB" % (len(self._train_chunk_cache), cache_size / 1024 / 1024))
+        return dataset
+
+    def load_dataset(self, filename, start_index):
         gc.collect()
         content = []
         with open(filename) as csvfile:
             reader = csv.reader(csvfile)
-            index = -1
             for index, line in enumerate(reader):
-                if index >= self._file_read_index:
-                    if index < self._file_read_index + Pre.DATASET_CAPACITY:
-                        content.append([float(i) for i in line])
-                    else:
-                        break
-            if index == self._file_read_index + Pre.DATASET_CAPACITY:
-                self._has_more_data = True
-                self._file_read_index += Pre.DATASET_CAPACITY
-            else:
-                self._has_more_data = False
+                if index < start_index:
+                    continue
+                if index >= start_index + Pre.DATASET_CAPACITY:
+                    break
+                content.append([float(i) for i in line])
         content = np.array(content)
         print("load data:", content.shape)
-        a = content[:, :-4]
-        b = np.ascontiguousarray(a).view(np.dtype((np.void, a.dtype.itemsize * a.shape[1])))
-        _, idx = np.unique(b, return_index=True)
-        unique_a = content[idx]
-        print("unique:", unique_a.shape)
-        return unique_a
+        self._validate_supervised_content(content, filename)
+        return content
 
     def _neighbor_count(self, board, who):
         footprint = np.array([[1, 1, 1], [1, 0, 1], [1, 1, 1]])
@@ -444,6 +679,8 @@ class Pre:
         if move is None:
             raise ValueError("supervised_move_index could not parse row")
         board = row[:sq]
+        if board[move] != Board.STONE_EMPTY:
+            raise ValueError("supervised move is occupied: %d" % (move,))
         side = int(math.isqrt(sq))
         prev_side = Board.BOARD_SIZE
         try:
@@ -459,10 +696,29 @@ class Pre:
         self.net = None
         self.optimizer = None
 
-    def run(self, from_file=None, part_vars=True, arena_games_per_side=2):
-        if arena_games_per_side <= 0:
-            raise ValueError("arena_games_per_side must be positive")
+    def run(
+        self,
+        from_file=None,
+        part_vars=True,
+        arena_games_per_side=50,
+        epochs=None,
+        arena_eval_interval=1,
+        prepared_dir=None,
+        checkpoint_interval=5,
+    ):
+        if arena_games_per_side < 0:
+            raise ValueError("arena_games_per_side must not be negative")
+        if arena_eval_interval < 0:
+            raise ValueError("arena_eval_interval must not be negative")
+        if checkpoint_interval < 0:
+            raise ValueError("checkpoint_interval must not be negative")
+        train_epochs = cfg.TRAIN_EPOCHS if epochs is None else int(epochs)
+        if train_epochs <= 0:
+            raise ValueError("epochs must be positive")
         self.arena_games_per_side = int(arena_games_per_side)
+        self.prepared_dir = self.resolve_prepared_dir(prepared_dir)
+        if self.prepared_dir is not None:
+            print("prepared dataset:", self.prepared_dir)
         self._ensure_net()
         if self.is_revive:
             self.load_from_vat(from_file, part_vars)
@@ -476,20 +732,25 @@ class Pre:
             os.makedirs(log_dir, exist_ok=True)
             self.tb_writer = SummaryWriter(log_dir=log_dir)
             print("tensorboard logdir:", log_dir)
-            epoch = 0
+            chunk_starts = self._train_chunk_starts()
+            self.load_fixed_eval_sets()
             try:
-                while self.loss_window.get_average() == 0.0 or self.loss_window.get_average() > 0.1:
+                for epoch in range(train_epochs):
                     print("epoch:", epoch)
                     if self.tb_writer is not None:
                         self.tb_writer.add_scalar("supervised/epoch", epoch, self.gstep)
-                    epoch += 1
-                    ith_part = 0
-                    while self._has_more_data:
-                        ith_part += 1
-                        self.adapt(Pre.DATA_SET_FILE)
+                    epoch_chunk_starts = chunk_starts.copy()
+                    np.random.shuffle(epoch_chunk_starts)
+                    for ith_part, start_index in enumerate(epoch_chunk_starts, start=1):
+                        self.adapt(Pre.DATA_SET_FILE, start_index)
                         self.train(ith_part)
-                    self._file_read_index = 0
-                    self._has_more_data = True
+                    if checkpoint_interval > 0 and (epoch + 1) % checkpoint_interval == 0:
+                        self._save_checkpoint(Pre.BRAIN_CHECKPOINT_FILE, self.gstep)
+                    self.write_validation_metrics()
+                    if arena_eval_interval > 0 and (epoch + 1) % arena_eval_interval == 0:
+                        self.write_arena_metrics()
+                self._save_checkpoint(Pre.BRAIN_CHECKPOINT_FILE, self.gstep)
+                self.write_test_metrics()
             finally:
                 if self.tb_writer is not None:
                     self.tb_writer.flush()

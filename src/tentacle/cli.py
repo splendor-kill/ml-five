@@ -30,6 +30,10 @@ def _cmd_supervised(args: argparse.Namespace) -> None:
         from_file=from_file,
         part_vars=part_vars,
         arena_games_per_side=args.arena_games_per_side,
+        epochs=args.epochs,
+        arena_eval_interval=args.arena_eval_interval,
+        prepared_dir=args.prepared_dir,
+        checkpoint_interval=args.checkpoint_interval,
     )
 
 
@@ -63,9 +67,37 @@ def _cmd_eval_supervised(args: argparse.Namespace) -> None:
     for split in ("train", "valid", "test"):
         m = metrics[split]
         print(
-            "%s: top1=%.4f top3=%.4f top5=%.4f"
-            % (split, m["top1"], m["top3"], m["top5"])
+            "%s: top1=%.4f top3=%.4f top5=%.4f legal=%.4f rank=%.2f entropy=%.4f"
+            % (
+                split,
+                m["top1"],
+                m["top3"],
+                m["top5"],
+                m["legal_top1"],
+                m["target_rank_mean"],
+                m["policy_entropy"],
+            )
         )
+
+
+def _cmd_clean_supervised_dataset(args: argparse.Namespace) -> None:
+    from tentacle.dnn import Pre
+
+    stats = Pre.clean_supervised_csv(args.input_file, args.output_file, overwrite=args.overwrite)
+    print(
+        "cleaned supervised dataset: kept=%d duplicates=%d output=%s"
+        % (stats["kept"], stats["duplicates"], args.output_file)
+    )
+
+
+def _cmd_prepare_supervised_dataset(args: argparse.Namespace) -> None:
+    from tentacle.dnn import Pre
+
+    stats = Pre.prepare_supervised_dataset(output_dir=args.output_dir, overwrite=args.overwrite)
+    print("prepared supervised dataset:", stats["output_dir"])
+    for split in ("train", "valid", "test"):
+        item = stats["splits"][split]
+        print("%s: rows=%d images=%s labels=%s" % (split, item["rows"], item["image_file"], item["label_file"]))
 
 
 def _cmd_gui(args: argparse.Namespace) -> None:
@@ -249,9 +281,36 @@ def main() -> None:
     sl_p.add_argument(
         "--arena-games-per-side",
         type=int,
-        default=2,
+        default=50,
         metavar="N",
-        help="每次记录 vs_rand/vs_minmax 时，每个先后手各对弈 N 局（总计每对手 2N 局）",
+        help="记录 vs_rand/vs_minmax 时，每个先后手各对弈 N 局（默认每个对手共 100 局）；0 表示不做对弈评估",
+    )
+    sl_p.add_argument(
+        "--arena-eval-interval",
+        type=int,
+        default=1,
+        metavar="N",
+        help="每 N 个 epoch 记录一次 vs_rand/vs_minmax；0 表示不做对弈评估",
+    )
+    sl_p.add_argument(
+        "--epochs",
+        type=int,
+        default=None,
+        metavar="N",
+        help="监督训练 epoch 数；默认使用 config.py 的 TRAIN_EPOCHS",
+    )
+    sl_p.add_argument(
+        "--prepared-dir",
+        default=None,
+        metavar="DIR",
+        help="预处理后的监督数据目录；省略时若 data set 目录下 prepared/ 完整存在则自动使用",
+    )
+    sl_p.add_argument(
+        "--checkpoint-interval",
+        type=int,
+        default=5,
+        metavar="N",
+        help="每 N 个 epoch 保存一次 checkpoint；0 表示只在训练结束保存",
     )
     sl_p.set_defaults(func=_cmd_supervised)
 
@@ -353,6 +412,44 @@ def main() -> None:
         help="测试集文件路径（默认 config.py 的 DATA_SET_TEST）",
     )
     eval_p.set_defaults(func=_cmd_eval_supervised)
+
+    clean_p = sub.add_parser(
+        "clean-supervised-dataset",
+        help="按监督学习语义清理 CSV：同局面同落点去重，同局面不同落点报错",
+    )
+    clean_p.add_argument(
+        "input_file",
+        metavar="INPUT",
+        help="输入监督 CSV 文件",
+    )
+    clean_p.add_argument(
+        "output_file",
+        metavar="OUTPUT",
+        help="输出清理后的 CSV 文件",
+    )
+    clean_p.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="允许覆盖已存在的输出文件",
+    )
+    clean_p.set_defaults(func=_cmd_clean_supervised_dataset)
+
+    prep_p = sub.add_parser(
+        "prepare-supervised-dataset",
+        help="把监督 CSV 预处理为 .npy 数组，训练时可 mmap/缓存使用",
+    )
+    prep_p.add_argument(
+        "--output-dir",
+        default=None,
+        metavar="DIR",
+        help="输出目录；默认 data set 目录下的 prepared/",
+    )
+    prep_p.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="允许覆盖已存在的预处理文件",
+    )
+    prep_p.set_defaults(func=_cmd_prepare_supervised_dataset)
 
     args = parser.parse_args()
     if args.command is None:
