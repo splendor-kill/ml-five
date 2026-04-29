@@ -15,6 +15,7 @@ class StrategyDNN(Strategy, Auditor):
         self.exploration = self.init_exp
         self.temperature = 0.02
         self.win_ratio = 1.
+        self.last_move_explored = False
 
         self.brain = DCNN3(is_train, is_revive, is_rl)
         self.brain.run(from_file, part_vars)
@@ -122,6 +123,7 @@ class StrategyDNN(Strategy, Auditor):
             if explored:
                 rand_loc = loc1
                 game.exploration_counter += 1
+        self.last_move_explored = explored
 
         loc = np.unravel_index(rand_loc, (Board.BOARD_SIZE, Board.BOARD_SIZE))
         is_legal = board.is_legal(loc[0], loc[1])
@@ -166,12 +168,13 @@ class StrategyDNN(Strategy, Auditor):
         self.brain.close()
 
     def on_episode_start(self):
+        self.last_move_explored = False
         self.brain.void()
 
     def swallow(self, who, st0, st1, **kwargs):
         if who != self.stand_for:
             return
-        self.brain.swallow(who, st0, st1, **kwargs)
+        self.brain.swallow(who, st0, st1, explored=self.last_move_explored, **kwargs)
 
     def absorb(self, winner, **kwargs):
         trained = self.brain.absorb(winner, stand_for=self.stand_for, **kwargs)

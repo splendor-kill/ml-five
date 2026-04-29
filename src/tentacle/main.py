@@ -65,12 +65,24 @@ def _get_mindsets(folder, prefix):
     return list(mindsets)
 
 
-def _minmax_curriculum_ratio(iteration, enabled, warmup_iters):
-    if not enabled:
-        return 1.0
+def _minmax_curriculum_step(warmup_iters):
     if warmup_iters <= 0:
         return 1.0
-    return min(1.0, iteration / warmup_iters)
+    return 1.0 / warmup_iters
+
+
+def _minmax_curriculum_train_stable(recent_win_rates):
+    if len(recent_win_rates) < 5:
+        return False
+    window = recent_win_rates[-5:]
+    return min(window) >= 0.55 and sum(window) / len(window) >= 0.65
+
+
+def _minmax_curriculum_should_backoff(recent_win_rates):
+    if len(recent_win_rates) < 3:
+        return False
+    window = recent_win_rates[-3:]
+    return sum(window) / len(window) < 0.25
 
 
 def _evaluate_dnn_vs_minmax(strategy, games_per_side):
@@ -130,7 +142,7 @@ def run_reinforce(
     eval_interval=5,
     checkpoint_interval=10,
     minmax_curriculum=True,
-    minmax_curriculum_iters=20,
+    minmax_curriculum_iters=100,
 ):
     """强化学习主循环（无显示器环境；日志写入 ``summary/reinforce/``）。"""
     if opponent not in ("selfplay", "minmax"):
@@ -158,7 +170,7 @@ def run_reinforce(
         part_vars = True
     s1 = StrategyDNN(is_train=False, is_revive=True, is_rl=True, from_file=file, part_vars=part_vars)
     if opponent == "minmax":
-        s1.configure_exploration(final_exp=0.05, anneal_steps=cfg.REINFORCE_PERIOD * max(minmax_curriculum_iters, 1))
+        s1.configure_exploration(final_exp=0.15, anneal_steps=cfg.REINFORCE_PERIOD * max(minmax_curriculum_iters, 1))
     print("I was born from", file)
 
     if opponent == "minmax":
@@ -178,6 +190,11 @@ def run_reinforce(
         print("vs.", file)
 
     iter_n = iterations
+    minmax_ratio = 1.0
+    recent_train_win_rates = []
+    last_eval_minmax_win_rate = None
+    if opponent == "minmax" and minmax_curriculum:
+        minmax_ratio = 0.0
     try:
         for i in range(iter_n):
             print("iter:", i)
@@ -185,7 +202,6 @@ def run_reinforce(
             step_counter, explo_counter = 0, 0
             minmax_games, rand_games = 0, 0
             episodes = episodes_per_iter or cfg.REINFORCE_PERIOD
-            minmax_ratio = _minmax_curriculum_ratio(i, minmax_curriculum and opponent == "minmax", minmax_curriculum_iters)
             for _ in range(episodes):
                 s1.stand_for = random.choice([Board.STONE_BLACK, Board.STONE_WHITE])
                 if opponent == "minmax":
@@ -220,6 +236,8 @@ def run_reinforce(
             win1_r = win1 / total
             win2_r = win2 / total
             draw_r = draw / total
+            recent_train_win_rates.append(win1_r)
+            recent_train_win_rates = recent_train_win_rates[-5:]
             print("iter:%d, win: %.3f, lose: %.3f, draw: %.3f, t: %.3f" % (i, win1_r, win2_r, draw_r, s1.temperature))
             print("avg. steps[%f], avg. explos[%f]" % (step_counter / episodes, explo_counter / episodes))
 
@@ -239,9 +257,11 @@ def run_reinforce(
             writer.add_scalar("train/rand_games", rand_games, i)
             _write_rl_metrics(writer, s1, i)
 
+            eval_result = None
             if opponent == "minmax" and eval_interval > 0 and (i + 1) % eval_interval == 0:
                 eval_result = _evaluate_dnn_vs_minmax(s1, eval_games_per_side)
                 if eval_result is not None:
+                    last_eval_minmax_win_rate = eval_result["win_rate"]
                     writer.add_scalar("eval/vs_minmax_win_rate", eval_result["win_rate"], i)
                     writer.add_scalar("eval/vs_minmax_lose_rate", eval_result["lose_rate"], i)
                     writer.add_scalar("eval/vs_minmax_draw_rate", eval_result["draw_rate"], i)
@@ -249,6 +269,29 @@ def run_reinforce(
                         "eval vs minmax, win: %.3f, lose: %.3f, draw: %.3f"
                         % (eval_result["win_rate"], eval_result["lose_rate"], eval_result["draw_rate"])
                     )
+
+            if opponent == "minmax":
+                curriculum_advance = False
+                curriculum_backoff = False
+                next_minmax_ratio = 1.0
+                if minmax_curriculum:
+                    step = _minmax_curriculum_step(minmax_curriculum_iters)
+                    train_stable = _minmax_curriculum_train_stable(recent_train_win_rates)
+                    eval_has_win = last_eval_minmax_win_rate is not None and last_eval_minmax_win_rate > 0
+                    curriculum_backoff = _minmax_curriculum_should_backoff(recent_train_win_rates)
+                    if curriculum_backoff:
+                        next_minmax_ratio = max(0.0, minmax_ratio - step)
+                    elif train_stable or eval_has_win:
+                        curriculum_advance = True
+                        next_minmax_ratio = min(1.0, minmax_ratio + step)
+                    else:
+                        next_minmax_ratio = minmax_ratio
+                    writer.add_scalar("train/minmax_train_stable", 1.0 if train_stable else 0.0, i)
+                    writer.add_scalar("train/minmax_eval_has_win", 1.0 if eval_has_win else 0.0, i)
+                writer.add_scalar("train/minmax_ratio_next", next_minmax_ratio, i)
+                writer.add_scalar("train/minmax_curriculum_advance", 1.0 if curriculum_advance else 0.0, i)
+                writer.add_scalar("train/minmax_curriculum_backoff", 1.0 if curriculum_backoff else 0.0, i)
+                minmax_ratio = next_minmax_ratio
     finally:
         if opponent == "minmax":
             s1.mind_clone(os.path.join(RL_BRAIN_DIR, FILE_PREFIX), _rl_checkpoint_step(iter_n))
@@ -738,7 +781,7 @@ if __name__ == "__main__":
         cli_main()
     else:
         first = sys.argv[1]
-        if first in ("gui", "supervised", "reinforce", "match", "-h", "--help"):
+        if first in ("gui", "supervised", "reinforce", "match", "replay-dataset", "-h", "--help"):
             cli_main()
         else:
             sys.argv = [sys.argv[0], "gui", *sys.argv[1:]]

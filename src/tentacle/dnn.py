@@ -1,5 +1,6 @@
 import csv
 import gc
+import math
 import os
 import time
 from datetime import datetime
@@ -13,6 +14,7 @@ from scipy import ndimage
 from tentacle.board import Board
 from tentacle.checkpoint import latest_checkpoint
 from tentacle.config import cfg
+from tentacle.gomocup_csv import infer_board_sq_from_row_length, supervised_move_index
 from tentacle.data_set import DataSet
 from tentacle.utils import ReplayMemory
 
@@ -71,6 +73,7 @@ class Pre:
 
     BATCH_SIZE = 32
     LEARNING_RATE = 0.001
+    RL_ENTROPY_BONUS = 0.1
     NUM_STEPS = 10000000
     DATASET_CAPACITY = 32 * 4000
 
@@ -106,6 +109,7 @@ class Pre:
 
         self.rl_global_step = 0
         self.replay_memory_games = ReplayMemory(size=Pre.REPLAY_MEMORY_CAPACITY)
+        self.rl_on_policy_games = []
         self.rl_period_counter = 0
         self.rl_train_count = 0
         self.last_rl_metrics = {}
@@ -198,9 +202,14 @@ class Pre:
     def build_dataset_from_rows(self, rows):
         ds = []
         for row in rows:
-            state, action = self.forge(row)
+            try:
+                state, action = self.forge(row)
+            except ValueError:
+                continue
             ds.append((state, action))
         ds = np.array(ds, dtype=object)
+        if ds.size == 0:
+            raise RuntimeError("build_dataset_from_rows: no valid forged rows")
         h, w, c = self.get_input_shape()
         return DataSet(np.vstack(ds[:, 0]).reshape((-1, h, w, c)), np.vstack(ds[:, 1]))
 
@@ -357,9 +366,14 @@ class Pre:
         dat = self.load_dataset(filename)
         ds = []
         for row in dat:
-            state, action = self.forge(row)
+            try:
+                state, action = self.forge(row)
+            except ValueError:
+                continue
             ds.append((state, action))
         ds = np.array(ds, dtype=object)
+        if ds.size == 0:
+            raise RuntimeError("adapt: no rows produced valid (state, action) pairs")
         np.random.shuffle(ds)
 
         size = ds.shape[0]
@@ -422,10 +436,23 @@ class Pre:
         return image, legal
 
     def forge(self, row):
-        board = row[:Board.BOARD_SIZE_SQ]
-        image, _ = self.adapt_state(board)
-        move = tuple(row[-4:-2].astype(int))
-        move = np.ravel_multi_index(move, (Board.BOARD_SIZE, Board.BOARD_SIZE))
+        row = np.asarray(row, dtype=float)
+        sq = infer_board_sq_from_row_length(int(row.size))
+        if sq is None:
+            raise ValueError("row length is not 3*S for a square board")
+        move = supervised_move_index(row)
+        if move is None:
+            raise ValueError("supervised_move_index could not parse row")
+        board = row[:sq]
+        side = int(math.isqrt(sq))
+        prev_side = Board.BOARD_SIZE
+        try:
+            if side != prev_side:
+                Board.set_board_size(side)
+            image, _ = self.adapt_state(board)
+        finally:
+            if side != prev_side:
+                Board.set_board_size(prev_side)
         return image, move
 
     def close(self):
@@ -474,8 +501,8 @@ class Pre:
         self._save_checkpoint(where, step)
 
     def swallow(self, who, st0, action, **kwargs):
-        del kwargs
-        self.observation.append((who, st0, action))
+        explored = kwargs["explored"]
+        self.observation.append((who, st0, action, explored))
 
     def absorb(self, winner, **kwargs):
         if len(self.observation) == 0:
@@ -490,13 +517,14 @@ class Pre:
         memo_one_game = []
         rewards = []
         stand_for = kwargs["stand_for"]
-        for who, st0, st1 in self.observation:
+        for who, st0, st1, explored in self.observation:
             if who != stand_for:
                 continue
             action = np.not_equal(st1.stones, st0.stones).astype(np.float32)
             reward = self._shape_reward(who, st0, st1)
             state, _ = self.adapt_state(st0.stones)
-            memo_one_game.append((state, action, reward))
+            policy_weight = 0.0 if explored else 1.0
+            memo_one_game.append((state, action, reward, policy_weight))
             rewards.append(reward)
 
         if memo_one_game:
@@ -504,10 +532,11 @@ class Pre:
             rewards[-1] += terminal_reward
             discounted_rewards = self.discount_episode_rewards(rewards)
             memo_one_game = [
-                (state, action, float(reward))
-                for (state, action, _), reward in zip(memo_one_game, discounted_rewards)
+                (state, action, float(reward), policy_weight)
+                for (state, action, _, policy_weight), reward in zip(memo_one_game, discounted_rewards)
             ]
             self.replay_memory_games.append(memo_one_game)
+            self.rl_on_policy_games.append(memo_one_game)
             self.rl_period_counter = (self.rl_period_counter + 1) % cfg.REINFORCE_PERIOD
         if not self.replay_memory_games.is_full():
             return False
@@ -515,7 +544,8 @@ class Pre:
             return False
 
         print("reinforcing...")
-        self.last_rl_metrics = self.rl_train(opt_policy_only=False)
+        self.last_rl_metrics = self.rl_train(policy_games=self.rl_on_policy_games, opt_policy_only=False)
+        self.rl_on_policy_games = []
         self.rl_train_count += 1
         print("my mind refreshed!")
         return True
@@ -535,10 +565,11 @@ class Pre:
             reward -= 0.3
         return reward
 
-    def rl_train(self, opt_policy_only=True):
+    def rl_train(self, policy_games=None, opt_policy_only=True):
         assert self.replay_memory_games.is_full()
         self._ensure_net()
         self.net.train()
+        policy_games = policy_games if policy_games is not None else []
 
         minibatch = min(64, Pre.REPLAY_MEMORY_CAPACITY)
         iterations = 8 * Pre.REPLAY_MEMORY_CAPACITY // minibatch
@@ -557,38 +588,59 @@ class Pre:
         log_prob_mins = []
         entropy_means = []
         grad_norms = []
+        policy_weight_means = []
         for _ in range(iterations):
-            samples = self.replay_memory_games.sample(minibatch)
-            states = np.array([sar[0] for g in samples for sar in g], dtype=np.float32)
-            actions = np.array([sar[1] for g in samples for sar in g], dtype=np.float32)
-            rewards = np.array([sar[2] for g in samples for sar in g], dtype=np.float32)
+            value_samples = self.replay_memory_games.sample(minibatch)
+            value_states = np.array([sar[0] for g in value_samples for sar in g], dtype=np.float32)
+            value_rewards = np.array([sar[2] for g in value_samples for sar in g], dtype=np.float32)
 
-            x = self._to_tensor_states(states)
+            value_x = self._to_tensor_states(value_states)
+            value_reward_t = torch.from_numpy(value_rewards).to(self.device)
+            value_reward_t = torch.clamp(value_reward_t, -2.0, 2.0)
+            _, value_pred = self.net(value_x)
+            value_loss = F.mse_loss(value_pred, value_reward_t)
+
+            if policy_games:
+                policy_idx = np.random.choice(len(policy_games), size=minibatch, replace=len(policy_games) < minibatch)
+                policy_samples = [policy_games[i] for i in policy_idx]
+                states = np.array([sar[0] for g in policy_samples for sar in g], dtype=np.float32)
+                actions = np.array([sar[1] for g in policy_samples for sar in g], dtype=np.float32)
+                rewards = np.array([sar[2] for g in policy_samples for sar in g], dtype=np.float32)
+                policy_weights = np.array([sar[3] for g in policy_samples for sar in g], dtype=np.float32)
+            else:
+                states = value_states
+                actions = np.zeros((value_states.shape[0], Pre.NUM_ACTIONS), dtype=np.float32)
+                rewards = value_rewards
+                policy_weights = np.zeros(value_states.shape[0], dtype=np.float32)
+
+            policy_x = self._to_tensor_states(states)
             action_t = torch.from_numpy(actions).to(self.device)
             reward_t = torch.from_numpy(rewards).to(self.device)
             reward_t = torch.clamp(reward_t, -2.0, 2.0)
+            policy_weight_t = torch.from_numpy(policy_weights).to(self.device)
 
-            logits, values = self.net(x)
+            logits, policy_values = self.net(policy_x)
             log_probs = F.log_softmax(logits, dim=1)
             probs = torch.exp(log_probs)
             entropy = -(probs * log_probs).sum(dim=1).mean()
             action_log_prob = (action_t * log_probs).sum(dim=1)
             bounded_action_log_prob = torch.clamp(action_log_prob, min=-20.0, max=0.0)
-            raw_advantage = reward_t - values.detach()
+            raw_advantage = reward_t - policy_values.detach()
             advantage = raw_advantage - raw_advantage.mean()
             advantage_std = advantage.std(unbiased=False)
             if advantage_std > 1e-6:
                 advantage = advantage / advantage_std
             advantage = torch.clamp(advantage, -2.0, 2.0)
-            policy_loss = -(action_log_prob * advantage).mean()
-            bounded_policy_loss = -(bounded_action_log_prob * advantage).mean()
+            policy_denominator = torch.clamp(policy_weight_t.sum(), min=1.0)
+            policy_loss = -((action_log_prob * advantage * policy_weight_t).sum() / policy_denominator)
+            bounded_policy_loss = -(
+                (bounded_action_log_prob * advantage * policy_weight_t).sum() / policy_denominator
+            )
 
             if opt_policy_only:
-                total_loss = bounded_policy_loss - 0.01 * entropy
-                value_loss = torch.zeros((), dtype=torch.float32, device=self.device)
+                total_loss = bounded_policy_loss - Pre.RL_ENTROPY_BONUS * entropy
             else:
-                value_loss = F.mse_loss(values, reward_t)
-                total_loss = bounded_policy_loss + value_loss - 0.01 * entropy
+                total_loss = bounded_policy_loss + value_loss - Pre.RL_ENTROPY_BONUS * entropy
 
             self.optimizer.zero_grad(set_to_none=True)
             total_loss.backward()
@@ -610,6 +662,7 @@ class Pre:
             log_prob_mins.append(float(action_log_prob.min().detach().cpu().item()))
             entropy_means.append(float(entropy.detach().cpu().item()))
             grad_norms.append(float(grad_norm.detach().cpu().item()))
+            policy_weight_means.append(float(policy_weight_t.mean().detach().cpu().item()))
 
         return {
             "loss_total": float(np.mean(total_losses)),
@@ -627,6 +680,7 @@ class Pre:
             "action_log_prob_min": float(np.min(log_prob_mins)),
             "entropy": float(np.mean(entropy_means)),
             "grad_norm": float(np.mean(grad_norms)),
+            "policy_weight_mean": float(np.mean(policy_weight_means)),
             "iterations": iterations,
             "global_step": self.rl_global_step,
         }

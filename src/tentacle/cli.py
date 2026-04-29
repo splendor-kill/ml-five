@@ -76,6 +76,18 @@ def _cmd_gui(args: argparse.Namespace) -> None:
     launch_gui(opponent_strategy=args.strategy, opponent_checkpoint=args.ckpt)
 
 
+def _cmd_replay_dataset(args: argparse.Namespace) -> None:
+    from tentacle.dataset_replay import launch_dataset_replay_gui
+
+    max_rows = None if args.max_rows == 0 else args.max_rows
+    launch_dataset_replay_gui(
+        args.file,
+        step_sec=args.step_sec,
+        max_rows=max_rows,
+        chain=args.chain,
+    )
+
+
 def _cmd_match(args: argparse.Namespace) -> None:
     from tentacle.main import run_model_match
 
@@ -131,6 +143,36 @@ def main() -> None:
         help="DNN checkpoint 目录或具体 .pt 文件（仅 --strategy dnn 时有效；省略则优先 rl_brain/ 再 zero/）",
     )
     gui_p.set_defaults(func=_cmd_gui)
+
+    replay_p = sub.add_parser(
+        "replay-dataset",
+        help="matplotlib 回放监督 CSV：每步展示局面与标注落子，可设间隔（默认打乱数据为逐条样本；--chain 合并相邻可衔接步）",
+    )
+    replay_p.add_argument(
+        "file",
+        metavar="PATH",
+        help="数据集 CSV 路径（如 data/alphagomoku/dataset_gomocup15/train.txt）",
+    )
+    replay_p.add_argument(
+        "--step-sec",
+        type=float,
+        default=1.0,
+        metavar="SEC",
+        help="每步总时长（秒）；约前 45%% 仅局面，后 55%% 标出落点，默认 1.0",
+    )
+    replay_p.add_argument(
+        "--max-rows",
+        type=int,
+        default=50_000,
+        metavar="N",
+        help="最多加载行数，避免超大文件占满内存；0 表示不限制",
+    )
+    replay_p.add_argument(
+        "--chain",
+        action="store_true",
+        help="若相邻行「下一行局面 == 本行落子后」，则合并为同一局顺序回放",
+    )
+    replay_p.set_defaults(func=_cmd_replay_dataset)
 
     match_p = sub.add_parser(
         "match",
@@ -271,7 +313,7 @@ def main() -> None:
     rl_p.add_argument(
         "--curriculum-iters",
         type=int,
-        default=20,
+        default=100,
         metavar="N",
         help="MinMax 课程训练从混合随机对手过渡到纯 MinMax 的迭代数",
     )
