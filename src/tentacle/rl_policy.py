@@ -162,11 +162,21 @@ class Brain:
         reward_t = torch.from_numpy(np.asarray(rewards, dtype=np.float32)).to(self.device)
         value_t = torch.from_numpy(np.asarray(values, dtype=np.float32)).to(self.device)
         adv = reward_t - value_t
+        h, w, c = self.get_input_shape()
+        legal_mask_np = np.asarray(states, dtype=np.float32).reshape((-1, h, w, c))[..., 2].reshape(-1, NUM_ACTIONS)
+        legal_mask = torch.from_numpy(legal_mask_np > 0.5).to(self.device)
+        if not bool(legal_mask.any(dim=1).all().item()):
+            raise ValueError("reinforce received a state with no legal moves")
+        action_legal = ((action_t > 0.0) & legal_mask).any(dim=1)
+        if not bool(action_legal.all().item()):
+            raise ValueError("reinforce received an illegal policy action")
 
         self.net.train()
         logits = self.net(x)
-        log_probs = F.log_softmax(logits, dim=1)
-        pg_loss = -(action_t * log_probs).sum(dim=1)
+        masked_logits = logits.masked_fill(~legal_mask, -torch.inf)
+        log_probs = F.log_softmax(masked_logits, dim=1)
+        legal_log_probs = log_probs.masked_fill(~legal_mask, 0.0)
+        pg_loss = -(action_t * legal_log_probs).sum(dim=1)
         reg = torch.zeros((), dtype=torch.float32, device=self.device)
         for p in self.net.parameters():
             reg = reg + torch.sum(p * p)

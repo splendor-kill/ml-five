@@ -360,7 +360,7 @@ def main() -> None:
     rl_p.add_argument(
         "--checkpoint-interval",
         type=int,
-        default=10,
+        default=25,
         metavar="N",
         help="MinMax 强化学习每 N 个迭代保存一次 checkpoint；0 表示只在结束保存",
     )

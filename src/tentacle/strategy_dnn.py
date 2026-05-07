@@ -6,6 +6,8 @@ from tentacle.utils import attemper
 from builtins import (super)
 
 class StrategyDNN(Strategy, Auditor):
+    uses_direct_move = True
+
     def __init__(self, is_train=False, is_revive=True, is_rl=False, from_file=None, part_vars=True):
         super().__init__()
         self.init_exp = 0.3  # initial exploration prob
@@ -90,13 +92,7 @@ class StrategyDNN(Strategy, Auditor):
                 return rand_loc, rand_loc != top1
         return top1, False
 
-    def preferred_move(self, board, game=None):
-        v = board.stones
-
-        state, legal = self.get_input_values(v)
-        probs, raw_pred = self.brain.get_move_probs(state)
-        probs = probs[0]
-        logits = raw_pred[0]
+    def _select_move(self, probs, logits, legal, game=None):
         legal_idx = np.where(legal == 1)[0]
         if legal_idx.size == 0:
             raise ValueError("no legal moves available")
@@ -122,8 +118,18 @@ class StrategyDNN(Strategy, Auditor):
             loc1, explored = self.explore_strategy3(probs, legal, rand_loc, game=game)
             if explored:
                 rand_loc = loc1
-                game.exploration_counter += 1
         self.last_move_explored = explored
+
+        return int(rand_loc), explored
+
+    def preferred_move(self, board, game=None):
+        v = board.stones
+
+        state, legal = self.get_input_values(v)
+        probs, raw_pred = self.brain.get_move_probs(state)
+        rand_loc, explored = self._select_move(probs[0], raw_pred[0], legal, game=game)
+        if explored:
+            game.exploration_counter += 1
 
         loc = np.unravel_index(rand_loc, (Board.BOARD_SIZE, Board.BOARD_SIZE))
         is_legal = board.is_legal(loc[0], loc[1])
@@ -133,6 +139,28 @@ class StrategyDNN(Strategy, Auditor):
                 % (loc, explored, self.stand_for, game.step_counter)
             )
         return loc
+
+    def preferred_moves(self, boards, games):
+        states = []
+        legals = []
+        for board in boards:
+            state, legal = self.get_input_values(board.stones)
+            states.append(state)
+            legals.append(legal)
+        probs, raw_preds = self.brain.get_move_probs(np.asarray(states, dtype=np.float32))
+        moves = []
+        explored_flags = []
+        for board, game, prob, logits, legal in zip(boards, games, probs, raw_preds, legals):
+            rand_loc, explored = self._select_move(prob, logits, legal, game=game)
+            loc = np.unravel_index(rand_loc, (Board.BOARD_SIZE, Board.BOARD_SIZE))
+            if not board.is_legal(loc[0], loc[1]):
+                raise RuntimeError(
+                    "selected illegal move: %s, explored=%s, side=%s, step=%s"
+                    % (loc, explored, self.stand_for, game.step_counter)
+                )
+            moves.append(loc)
+            explored_flags.append(explored)
+        return moves, explored_flags
 
     def preferred_board(self, old, moves, context):
         if not moves:

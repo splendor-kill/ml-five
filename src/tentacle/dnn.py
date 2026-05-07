@@ -90,6 +90,7 @@ class Pre:
     DATA_SET_TEST = cfg.DATA_SET_TEST
     REPLAY_MEMORY_DIR = cfg.REPLAY_MEMORY_DIR
     REPLAY_MEMORY_CAPACITY = cfg.REPLAY_MEMORY_CAPACITY
+    RL_POSITION_CHUNK = int(getattr(cfg, "RL_POSITION_CHUNK", 4096))
 
     def __init__(self, is_train=True, is_revive=False, is_rl=False):
         self.is_train = is_train
@@ -503,7 +504,10 @@ class Pre:
     def get_move_probs(self, state):
         self._ensure_net()
         self.net.eval()
-        x = self._to_tensor_states(np.asarray(state, dtype=np.float32).reshape(1, -1))
+        states = np.asarray(state, dtype=np.float32)
+        if states.ndim == 1:
+            states = states.reshape(1, -1)
+        x = self._to_tensor_states(states)
         with torch.no_grad():
             logits, _ = self.net(x)
             probs = F.softmax(logits, dim=1).cpu().numpy()
@@ -716,13 +720,13 @@ class Pre:
         if train_epochs <= 0:
             raise ValueError("epochs must be positive")
         self.arena_games_per_side = int(arena_games_per_side)
-        self.prepared_dir = self.resolve_prepared_dir(prepared_dir)
-        if self.prepared_dir is not None:
-            print("prepared dataset:", self.prepared_dir)
         self._ensure_net()
         if self.is_revive:
             self.load_from_vat(from_file, part_vars)
         if self.is_train:
+            self.prepared_dir = self.resolve_prepared_dir(prepared_dir)
+            if self.prepared_dir is not None:
+                print("prepared dataset:", self.prepared_dir)
             try:
                 from torch.utils.tensorboard import SummaryWriter
             except ImportError as exc:
@@ -770,13 +774,15 @@ class Pre:
             return False
         if winner == "?":
             winner = self.inference_who_won()
-        if winner == Board.STONE_BLACK or winner == Board.STONE_WHITE:
+        if winner in (Board.STONE_BLACK, Board.STONE_WHITE, Board.STONE_EMPTY):
             return self._absorb(winner, **kwargs)
         return False
 
     def _absorb(self, winner, **kwargs):
-        memo_one_game = []
+        states = []
+        actions = []
         rewards = []
+        policy_weights = []
         stand_for = kwargs["stand_for"]
         for who, st0, st1, explored in self.observation:
             if who != stand_for:
@@ -785,17 +791,19 @@ class Pre:
             reward = self._shape_reward(who, st0, st1)
             state, _ = self.adapt_state(st0.stones)
             policy_weight = 0.0 if explored else 1.0
-            memo_one_game.append((state, action, reward, policy_weight))
+            states.append(state)
+            actions.append(action)
             rewards.append(reward)
+            policy_weights.append(policy_weight)
 
-        if memo_one_game:
-            terminal_reward = 1.0 if stand_for == winner else -1.0
+        if states:
+            if winner == Board.STONE_EMPTY:
+                terminal_reward = 0.0
+            else:
+                terminal_reward = 1.0 if stand_for == winner else -1.0
             rewards[-1] += terminal_reward
             discounted_rewards = self.discount_episode_rewards(rewards)
-            memo_one_game = [
-                (state, action, float(reward), policy_weight)
-                for (state, action, _, policy_weight), reward in zip(memo_one_game, discounted_rewards)
-            ]
+            memo_one_game = self._pack_rl_game(states, actions, discounted_rewards, policy_weights)
             self.replay_memory_games.append(memo_one_game)
             self.rl_on_policy_games.append(memo_one_game)
             self.rl_period_counter = (self.rl_period_counter + 1) % cfg.REINFORCE_PERIOD
@@ -810,6 +818,25 @@ class Pre:
         self.rl_train_count += 1
         print("my mind refreshed!")
         return True
+
+    @staticmethod
+    def _pack_rl_game(states, actions, rewards, policy_weights):
+        return {
+            "states": np.asarray(states, dtype=np.float32),
+            "actions": np.asarray(actions, dtype=np.float32),
+            "rewards": np.asarray(rewards, dtype=np.float32),
+            "policy_weights": np.asarray(policy_weights, dtype=np.float32),
+        }
+
+    @staticmethod
+    def _concat_rl_games(games, include_actions):
+        states = np.concatenate([game["states"] for game in games], axis=0)
+        rewards = np.concatenate([game["rewards"] for game in games], axis=0)
+        if not include_actions:
+            return states, rewards
+        actions = np.concatenate([game["actions"] for game in games], axis=0)
+        policy_weights = np.concatenate([game["policy_weights"] for game in games], axis=0)
+        return states, actions, rewards, policy_weights
 
     def _shape_reward(self, who, st0, st1):
         oppo = Board.oppo(who)
@@ -832,8 +859,9 @@ class Pre:
         self.net.train()
         policy_games = policy_games if policy_games is not None else []
 
-        minibatch = min(64, Pre.REPLAY_MEMORY_CAPACITY)
-        iterations = 8 * Pre.REPLAY_MEMORY_CAPACITY // minibatch
+        minibatch = max(1, min(64, Pre.REPLAY_MEMORY_CAPACITY))
+        iterations = max(1, 8 * Pre.REPLAY_MEMORY_CAPACITY // minibatch)
+        pos_chunk = max(1, int(Pre.RL_POSITION_CHUNK))
         total_losses = []
         policy_losses = []
         policy_surrogate_losses = []
@@ -852,66 +880,129 @@ class Pre:
         policy_weight_means = []
         for _ in range(iterations):
             value_samples = self.replay_memory_games.sample(minibatch)
-            value_states = np.array([sar[0] for g in value_samples for sar in g], dtype=np.float32)
-            value_rewards = np.array([sar[2] for g in value_samples for sar in g], dtype=np.float32)
-
-            value_x = self._to_tensor_states(value_states)
-            value_reward_t = torch.from_numpy(value_rewards).to(self.device)
-            value_reward_t = torch.clamp(value_reward_t, -2.0, 2.0)
-            _, value_pred = self.net(value_x)
-            value_loss = F.mse_loss(value_pred, value_reward_t)
+            value_states, value_rewards = self._concat_rl_games(value_samples, include_actions=False)
 
             if policy_games:
                 policy_idx = np.random.choice(len(policy_games), size=minibatch, replace=len(policy_games) < minibatch)
                 policy_samples = [policy_games[i] for i in policy_idx]
-                states = np.array([sar[0] for g in policy_samples for sar in g], dtype=np.float32)
-                actions = np.array([sar[1] for g in policy_samples for sar in g], dtype=np.float32)
-                rewards = np.array([sar[2] for g in policy_samples for sar in g], dtype=np.float32)
-                policy_weights = np.array([sar[3] for g in policy_samples for sar in g], dtype=np.float32)
+                states, actions, rewards, policy_weights = self._concat_rl_games(policy_samples, include_actions=True)
             else:
                 states = value_states
                 actions = np.zeros((value_states.shape[0], Pre.NUM_ACTIONS), dtype=np.float32)
                 rewards = value_rewards
                 policy_weights = np.zeros(value_states.shape[0], dtype=np.float32)
 
-            policy_x = self._to_tensor_states(states)
-            action_t = torch.from_numpy(actions).to(self.device)
+            n_val = int(value_states.shape[0])
+            n_pol = int(states.shape[0])
             reward_t = torch.from_numpy(rewards).to(self.device)
             reward_t = torch.clamp(reward_t, -2.0, 2.0)
+            action_t = torch.from_numpy(actions).to(self.device)
             policy_weight_t = torch.from_numpy(policy_weights).to(self.device)
+            h, w, c = self.get_input_shape()
+            legal_mask_np = np.asarray(states, dtype=np.float32).reshape((-1, h, w, c))[..., 2].reshape(-1, Pre.NUM_ACTIONS)
+            legal_mask = torch.from_numpy(legal_mask_np > 0.5).to(self.device)
+            if not bool(legal_mask.any(dim=1).all().item()):
+                raise ValueError("rl_train received a state with no legal moves")
+            action_legal = ((action_t > 0.0) & legal_mask).any(dim=1) | (policy_weight_t == 0.0)
+            if not bool(action_legal.all().item()):
+                raise ValueError("rl_train received an illegal policy action")
 
-            logits, policy_values = self.net(policy_x)
-            log_probs = F.log_softmax(logits, dim=1)
-            probs = torch.exp(log_probs)
-            entropy = -(probs * log_probs).sum(dim=1).mean()
-            action_log_prob = (action_t * log_probs).sum(dim=1)
-            bounded_action_log_prob = torch.clamp(action_log_prob, min=-20.0, max=0.0)
-            raw_advantage = reward_t - policy_values.detach()
+            # Baseline values for advantage (full policy batch), chunked to limit VRAM.
+            with torch.no_grad():
+                pv_chunks = []
+                for s in range(0, n_pol, pos_chunk):
+                    e = min(s + pos_chunk, n_pol)
+                    px = self._to_tensor_states(states[s:e])
+                    _, pv = self.net(px)
+                    pv_chunks.append(pv)
+                policy_values_all = torch.cat(pv_chunks, dim=0)
+
+            raw_advantage = reward_t - policy_values_all
             advantage = raw_advantage - raw_advantage.mean()
             advantage_std = advantage.std(unbiased=False)
             if advantage_std > 1e-6:
                 advantage = advantage / advantage_std
             advantage = torch.clamp(advantage, -2.0, 2.0)
             policy_denominator = torch.clamp(policy_weight_t.sum(), min=1.0)
-            policy_loss = -((action_log_prob * advantage * policy_weight_t).sum() / policy_denominator)
-            bounded_policy_loss = -(
-                (bounded_action_log_prob * advantage * policy_weight_t).sum() / policy_denominator
-            )
-
-            if opt_policy_only:
-                total_loss = bounded_policy_loss - Pre.RL_ENTROPY_BONUS * entropy
-            else:
-                total_loss = bounded_policy_loss + value_loss - Pre.RL_ENTROPY_BONUS * entropy
 
             self.optimizer.zero_grad(set_to_none=True)
-            total_loss.backward()
+
+            # 关键：每个 chunk 各自反向传播以释放本 chunk 计算图，梯度自然累加到参数。
+            # 数学上等价于一次性对完整 batch 求 loss 后 backward。
+
+            value_loss_log = 0.0
+            if opt_policy_only:
+                with torch.no_grad():
+                    v_sse = 0.0
+                    for s in range(0, n_val, pos_chunk):
+                        e = min(s + pos_chunk, n_val)
+                        vx = self._to_tensor_states(value_states[s:e])
+                        vr = torch.from_numpy(value_rewards[s:e]).to(self.device)
+                        vr = torch.clamp(vr, -2.0, 2.0)
+                        _, vp = self.net(vx)
+                        v_sse += float(F.mse_loss(vp, vr, reduction="sum").detach().cpu().item())
+                    value_loss_log = v_sse / max(1, n_val)
+            else:
+                v_sse_log = 0.0
+                for s in range(0, n_val, pos_chunk):
+                    e = min(s + pos_chunk, n_val)
+                    vx = self._to_tensor_states(value_states[s:e])
+                    vr = torch.from_numpy(value_rewards[s:e]).to(self.device)
+                    vr = torch.clamp(vr, -2.0, 2.0)
+                    _, vp = self.net(vx)
+                    vl_chunk = F.mse_loss(vp, vr, reduction="sum") / max(1, n_val)
+                    vl_chunk.backward()
+                    v_sse_log += float(vl_chunk.detach().cpu().item())
+                value_loss_log = v_sse_log
+
+            policy_surrogate_log = 0.0
+            policy_loss_log = 0.0
+            entropy_log = 0.0
+            log_prob_sum_log = 0.0
+            log_prob_min_log = float("inf")
+            entropy_bonus = float(Pre.RL_ENTROPY_BONUS)
+            denom_for_entropy = float(max(1, n_pol))
+            for s in range(0, n_pol, pos_chunk):
+                e = min(s + pos_chunk, n_pol)
+                px = self._to_tensor_states(states[s:e])
+                logits, _ = self.net(px)
+                am = legal_mask[s:e]
+                at = action_t[s:e]
+                adv = advantage[s:e]
+                pw = policy_weight_t[s:e]
+                masked_logits = logits.masked_fill(~am, -torch.inf)
+                log_probs = F.log_softmax(masked_logits, dim=1)
+                legal_log_probs = log_probs.masked_fill(~am, 0.0)
+                probs = torch.exp(log_probs)
+                entropy_chunk_sum = -(probs.masked_fill(~am, 0.0) * legal_log_probs).sum(dim=1).sum()
+                action_log_prob = (at * legal_log_probs).sum(dim=1)
+                bounded_action_log_prob = torch.clamp(action_log_prob, min=-20.0, max=0.0)
+                surrogate_chunk = -(bounded_action_log_prob * adv * pw).sum() / policy_denominator
+                pl_chunk = -(action_log_prob * adv * pw).sum() / policy_denominator
+                entropy_chunk_term = entropy_chunk_sum / denom_for_entropy
+                loss_chunk = surrogate_chunk - entropy_bonus * entropy_chunk_term
+                loss_chunk.backward()
+                policy_surrogate_log += float(surrogate_chunk.detach().cpu().item())
+                policy_loss_log += float(pl_chunk.detach().cpu().item())
+                entropy_log += float(entropy_chunk_term.detach().cpu().item())
+                log_prob_sum_log += float(action_log_prob.detach().sum().cpu().item())
+                cmin = float(action_log_prob.detach().min().cpu().item())
+                if cmin < log_prob_min_log:
+                    log_prob_min_log = cmin
+
             grad_norm = torch.nn.utils.clip_grad_norm_(self.net.parameters(), 1.0)
             self.optimizer.step()
             self.rl_global_step += 1
-            total_losses.append(float(total_loss.detach().cpu().item()))
-            policy_losses.append(float(policy_loss.detach().cpu().item()))
-            policy_surrogate_losses.append(float(bounded_policy_loss.detach().cpu().item()))
-            value_losses.append(float(value_loss.detach().cpu().item()))
+
+            total_loss_log = policy_surrogate_log + value_loss_log - entropy_bonus * entropy_log
+            log_prob_mean_log = log_prob_sum_log / denom_for_entropy
+            if log_prob_min_log == float("inf"):
+                log_prob_min_log = 0.0
+
+            total_losses.append(total_loss_log)
+            policy_losses.append(policy_loss_log)
+            policy_surrogate_losses.append(policy_surrogate_log)
+            value_losses.append(value_loss_log)
             reward_means.append(float(reward_t.mean().detach().cpu().item()))
             reward_mins.append(float(reward_t.min().detach().cpu().item()))
             reward_maxes.append(float(reward_t.max().detach().cpu().item()))
@@ -919,9 +1010,9 @@ class Pre:
             advantage_stds.append(float(advantage.std(unbiased=False).detach().cpu().item()))
             advantage_mins.append(float(advantage.min().detach().cpu().item()))
             advantage_maxes.append(float(advantage.max().detach().cpu().item()))
-            log_prob_means.append(float(action_log_prob.mean().detach().cpu().item()))
-            log_prob_mins.append(float(action_log_prob.min().detach().cpu().item()))
-            entropy_means.append(float(entropy.detach().cpu().item()))
+            log_prob_means.append(log_prob_mean_log)
+            log_prob_mins.append(log_prob_min_log)
+            entropy_means.append(entropy_log)
             grad_norms.append(float(grad_norm.detach().cpu().item()))
             policy_weight_means.append(float(policy_weight_t.mean().detach().cpu().item()))
 

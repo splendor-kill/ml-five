@@ -26,6 +26,7 @@ SUMMARY_DIR = cfg.SUMMARY_DIR
 FILE_PREFIX = cfg.FILE_PREFIX
 BRAIN1_FILE = cfg.BRAIN1_FILE
 BRAIN2_FILE = cfg.BRAIN2_FILE
+RL_CONCURRENT_EPISODES = 128
 plt = None
 patches = None
 
@@ -133,6 +134,117 @@ def _rl_checkpoint_step(iteration):
     return int(timestamp) * 1000 + iteration
 
 
+def _rl_win_ratio(wins, losses):
+    if losses == 0:
+        return float("inf") if wins > 0 else 1.0
+    return wins / losses
+
+
+def _set_episode_sides(s1, episode):
+    s1.stand_for = episode["s1_side"]
+    episode["s2"].stand_for = episode["s2_side"]
+
+
+def _current_episode_strategy(s1, episode):
+    game = episode["game"]
+    game.whose_turn = game.board.whose_turn_now()
+    return s1 if game.whose_turn == episode["s1_side"] else episode["s2"]
+
+
+def _advance_episode_with_strategy(s1, episode, strategy):
+    _set_episode_sides(s1, episode)
+    episode["game"].step()
+    episode["game"].step_counter += 1
+
+
+def _advance_episode_with_move(s1, episode, strategy, loc, explored):
+    _set_episode_sides(s1, episode)
+    if strategy is s1:
+        s1.last_move_explored = explored
+    episode["game"].step_with_move(strategy, loc, explored=explored)
+    episode["game"].step_counter += 1
+
+
+def _play_reinforce_episodes(s1, s2, opponent, episodes, minmax_ratio, minmax_strategy=None, rand_strategy=None):
+    minmax_games, rand_games = 0, 0
+    wins = losses = draws = 0
+    step_counter = explo_counter = 0
+    started = completed = 0
+    active_limit = min(episodes, RL_CONCURRENT_EPISODES)
+
+    def new_episode():
+        nonlocal minmax_games, rand_games, started
+        s1_side = random.choice([Board.STONE_BLACK, Board.STONE_WHITE])
+        if opponent == "minmax":
+            s2_episode = minmax_strategy if random.random() < minmax_ratio else rand_strategy
+            minmax_games += 1 if s2_episode is minmax_strategy else 0
+            rand_games += 1 if s2_episode is rand_strategy else 0
+        else:
+            s2_episode = s2
+        episode = {
+            "game": Game(Board.rand_generate_a_position(), s1, s2_episode, observer=s1),
+            "s1_side": s1_side,
+            "s2": s2_episode,
+            "s2_side": Board.oppo(s1_side),
+        }
+        _set_episode_sides(s1, episode)
+        started += 1
+        return episode
+
+    def collect_episode(episode):
+        nonlocal wins, losses, draws, step_counter, explo_counter, completed
+        game = episode["game"]
+        wins += 1 if game.winner == episode["s1_side"] else 0
+        losses += 1 if game.winner == episode["s2_side"] else 0
+        draws += 1 if game.winner == Board.STONE_EMPTY else 0
+        step_counter += game.step_counter
+        explo_counter += game.exploration_counter
+        completed += 1
+
+    def maybe_append_replacement(items):
+        if started < episodes:
+            items.append(new_episode())
+
+    active = [new_episode() for _ in range(active_limit)]
+    while completed < episodes:
+        next_active = []
+        dnn_batches = {}
+        for episode in active:
+            game = episode["game"]
+            if game.over:
+                collect_episode(episode)
+                maybe_append_replacement(next_active)
+                continue
+            _set_episode_sides(s1, episode)
+            strategy = _current_episode_strategy(s1, episode)
+            if isinstance(strategy, StrategyDNN):
+                dnn_batches.setdefault(strategy, []).append(episode)
+            else:
+                _advance_episode_with_strategy(s1, episode, strategy)
+                if game.over:
+                    collect_episode(episode)
+                    maybe_append_replacement(next_active)
+                else:
+                    next_active.append(episode)
+
+        for strategy, batch in dnn_batches.items():
+            boards = [episode["game"].board for episode in batch]
+            games = [episode["game"] for episode in batch]
+            moves, explored_flags = strategy.preferred_moves(boards, games)
+            for episode, loc, explored in zip(batch, moves, explored_flags):
+                game = episode["game"]
+                _advance_episode_with_move(s1, episode, strategy, loc, explored)
+                if game.over:
+                    collect_episode(episode)
+                    maybe_append_replacement(next_active)
+                else:
+                    next_active.append(episode)
+
+        active = next_active
+
+    return wins, losses, draws, step_counter, explo_counter, minmax_games, rand_games
+
+
 def run_reinforce(
     resume=True,
     opponent="selfplay",
@@ -140,13 +252,25 @@ def run_reinforce(
     episodes_per_iter=None,
     eval_games_per_side=2,
     eval_interval=5,
-    checkpoint_interval=10,
+    checkpoint_interval=25,
     minmax_curriculum=True,
     minmax_curriculum_iters=100,
 ):
     """强化学习主循环（无显示器环境；日志写入 ``summary/reinforce/``）。"""
     if opponent not in ("selfplay", "minmax"):
         raise ValueError("opponent must be 'selfplay' or 'minmax'")
+    if iterations <= 0:
+        raise ValueError("iterations must be positive")
+    if episodes_per_iter is not None and episodes_per_iter <= 0:
+        raise ValueError("episodes_per_iter must be positive")
+    if eval_games_per_side < 0:
+        raise ValueError("eval_games_per_side must not be negative")
+    if eval_interval < 0:
+        raise ValueError("eval_interval must not be negative")
+    if checkpoint_interval < 0:
+        raise ValueError("checkpoint_interval must not be negative")
+    if minmax_curriculum_iters < 0:
+        raise ValueError("minmax_curriculum_iters must not be negative")
     try:
         from torch.utils.tensorboard import SummaryWriter
     except ImportError as exc:
@@ -202,22 +326,24 @@ def run_reinforce(
             step_counter, explo_counter = 0, 0
             minmax_games, rand_games = 0, 0
             episodes = episodes_per_iter or cfg.REINFORCE_PERIOD
-            for _ in range(episodes):
-                s1.stand_for = random.choice([Board.STONE_BLACK, Board.STONE_WHITE])
-                if opponent == "minmax":
-                    s2 = minmax_strategy if random.random() < minmax_ratio else rand_strategy
-                    minmax_games += 1 if s2 is minmax_strategy else 0
-                    rand_games += 1 if s2 is rand_strategy else 0
-                s2.stand_for = Board.oppo(s1.stand_for)
-
-                g = Game(Board.rand_generate_a_position(), s1, s2, observer=s1)
-                g.step_to_end()
-                win1 += 1 if g.winner == s1.stand_for else 0
-                win2 += 1 if g.winner == s2.stand_for else 0
-                draw += 1 if g.winner == Board.STONE_EMPTY else 0
-                s1.win_ratio = win1 / win2 if win2 != 0 else 1.0
-                step_counter += g.step_counter
-                explo_counter += g.exploration_counter
+            (
+                win1,
+                win2,
+                draw,
+                step_counter,
+                explo_counter,
+                minmax_games,
+                rand_games,
+            ) = _play_reinforce_episodes(
+                s1,
+                s2,
+                opponent,
+                episodes,
+                minmax_ratio,
+                minmax_strategy=minmax_strategy if opponent == "minmax" else None,
+                rand_strategy=rand_strategy if opponent == "minmax" else None,
+            )
+            s1.win_ratio = _rl_win_ratio(win1, win2)
 
             if opponent == "selfplay" and s1.win_ratio > 1.1:
                 file = FILE_PREFIX + "-" + str(i)
@@ -229,7 +355,7 @@ def run_reinforce(
                 s2 = StrategyDNN(is_train=False, is_revive=True, is_rl=False, from_file=file, part_vars=False)
                 print("vs.", file)
 
-            if opponent == "minmax" and checkpoint_interval > 0 and (i + 1) % checkpoint_interval == 0:
+            if checkpoint_interval > 0 and (i + 1) % checkpoint_interval == 0:
                 s1.mind_clone(os.path.join(RL_BRAIN_DIR, FILE_PREFIX), _rl_checkpoint_step(i + 1))
 
             total = win1 + win2 + draw
@@ -247,7 +373,8 @@ def run_reinforce(
             writer.add_scalar("reinforce/temperature", s1.temperature, i)
             writer.add_scalar("reinforce/avg_steps", step_counter / episodes, i)
             writer.add_scalar("reinforce/avg_exploration", explo_counter / episodes, i)
-            writer.add_scalar("reinforce/win_ratio", s1.win_ratio, i)
+            logged_win_ratio = s1.win_ratio if np.isfinite(s1.win_ratio) else float(episodes)
+            writer.add_scalar("reinforce/win_ratio", logged_win_ratio, i)
             writer.add_text("reinforce/opponent", opponent, i)
             writer.add_scalar("train/win_rate", win1_r, i)
             writer.add_scalar("train/lose_rate", win2_r, i)
@@ -293,8 +420,7 @@ def run_reinforce(
                 writer.add_scalar("train/minmax_curriculum_backoff", 1.0 if curriculum_backoff else 0.0, i)
                 minmax_ratio = next_minmax_ratio
     finally:
-        if opponent == "minmax":
-            s1.mind_clone(os.path.join(RL_BRAIN_DIR, FILE_PREFIX), _rl_checkpoint_step(iter_n))
+        s1.mind_clone(os.path.join(RL_BRAIN_DIR, FILE_PREFIX), _rl_checkpoint_step(iter_n))
         writer.flush()
         writer.close()
 

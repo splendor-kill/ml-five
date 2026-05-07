@@ -13,6 +13,8 @@ from tentacle.mcts1 import MCTS1
 
 
 class Strategy(ABC):
+    uses_direct_move = False
+
     def __init__(self):
         self.stand_for = None
         self.is_learning = False
@@ -26,7 +28,8 @@ class Strategy(ABC):
     def update_at_end(self, old, new):
         pass
 
-    def preferred_move(self, board):
+    def preferred_move(self, board, context=None):
+        del board, context
         raise NotImplementedError
 
     def _preferred_board_by_value(self, old, moves, context):
@@ -371,8 +374,17 @@ class StrategyNetBot(Strategy):
 
 
 class StrategyRand(Strategy):
+    uses_direct_move = True
+
     def __init__(self):
         super().__init__()
+
+    def preferred_move(self, board, context=None):
+        del context
+        legal = np.where(board.stones == Board.STONE_EMPTY)[0]
+        if legal.size == 0:
+            raise Exception("should be ended")
+        return int(random.choice(legal))
 
     def preferred_board(self, old, moves, context):
         return random.choice(moves)
@@ -415,15 +427,22 @@ class StrategyHeuristic(Strategy):
 
 
 class StrategyMinMax(Strategy):
+    uses_direct_move = True
+
     def __init__(self):
         super().__init__()
         self.searcher = Searcher()
 
+    def preferred_move(self, board, context=None):
+        who = board.whose_turn_now() if context is None else context.whose_turn
+        self.searcher.board = board.stones.reshape((-1, Board.BOARD_SIZE)).tolist()
+        DEPTH = 1
+        _score, row, col = self.searcher.search(who, DEPTH)
+        return row, col
+
     def preferred_board(self, old, moves, context):
         game = context
-        self.searcher.board = old.stones.reshape((-1, Board.BOARD_SIZE)).tolist()
-        DEPTH = 1
-        score, row, col = self.searcher.search(game.whose_turn, DEPTH)
+        row, col = self.preferred_move(old, game)
         #         print('score%d, loc(%d, %d)'%(score, row, col))
 
         x = old.stones.copy()

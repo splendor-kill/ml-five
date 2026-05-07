@@ -28,8 +28,8 @@ class Game(object):
             return
 
         # Terminal after a move: new_board.is_over(old). Full board (no empties): no moves.
-        moves, self.whose_turn, _ = Game.possible_moves(self.board)
-        if not moves:
+        self.whose_turn = self.board.whose_turn_now()
+        if not np.any(self.board.stones == Board.STONE_EMPTY):
             self.over = True
             self.winner = Board.STONE_EMPTY
             self.last_loc = None
@@ -39,7 +39,12 @@ class Game(object):
 
         strat.update(self.board, None)
 
-        new_board = strat.preferred_board(self.board, moves, self)
+        if getattr(strat, "uses_direct_move", False):
+            loc = strat.preferred_move(self.board, self)
+            new_board = Game.board_after_move(self.board, loc, self.whose_turn)
+        else:
+            moves, _, _ = Game.possible_moves(self.board)
+            new_board = strat.preferred_board(self.board, moves, self)
         if new_board.exploration:
             strat.setup()
             self.exploration_counter += 1
@@ -60,6 +65,47 @@ class Game(object):
 
         if self.strat1 == self.strat2:
             self.strat1.stand_for = Board.oppo(self.strat1.stand_for)
+
+    def step_with_move(self, strat, loc, explored=False):
+        if self.over:
+            return
+
+        self.whose_turn = self.board.whose_turn_now()
+        if not np.any(self.board.stones == Board.STONE_EMPTY):
+            self.over = True
+            self.winner = Board.STONE_EMPTY
+            self.last_loc = None
+            return
+
+        strat.update(self.board, None)
+        new_board = Game.board_after_move(self.board, loc, self.whose_turn)
+        if explored:
+            self.exploration_counter += 1
+
+        self.over, self.winner, self.last_loc = new_board.is_over(self.board)
+
+        if self.observer is not None:
+            self.observer.swallow(self.whose_turn, self.board, new_board)
+
+        if self.over:
+            strat.update_at_end(self.board, new_board)
+            opponent_strat = self.strat2 if strat is self.strat1 else self.strat1
+            opponent_strat.update_at_end(None, new_board)
+            if self.observer is not None:
+                self.observer.absorb(self.winner)
+
+        self.board = new_board
+
+    @staticmethod
+    def board_after_move(board, loc, who):
+        if isinstance(loc, tuple):
+            index = np.ravel_multi_index(loc, (Board.BOARD_SIZE, Board.BOARD_SIZE))
+        else:
+            index = int(loc)
+        new_board = Board()
+        new_board.stones = board.stones.copy()
+        new_board.place_down(index, who)
+        return new_board
 
     def step_to_end(self):
         if self.observer is not None:
