@@ -50,6 +50,7 @@ def _cmd_reinforce(args: argparse.Namespace) -> None:
         checkpoint_interval=args.checkpoint_interval,
         minmax_curriculum=not args.no_curriculum,
         minmax_curriculum_iters=args.curriculum_iters,
+        progress_every=args.progress_every,
     )
 
 
@@ -375,6 +376,13 @@ def main() -> None:
         default=100,
         metavar="N",
         help="MinMax 课程训练从混合随机对手过渡到纯 MinMax 的迭代数",
+    )
+    rl_p.add_argument(
+        "--progress-every",
+        type=int,
+        default=None,
+        metavar="N",
+        help="每完成 N 局打印一次进度；0 关闭；省略则自动估算（约每 5%% 局）",
     )
     rl_p.set_defaults(func=_cmd_reinforce)
 

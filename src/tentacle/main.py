@@ -31,6 +31,11 @@ plt = None
 patches = None
 
 
+def _reinforce_progress_interval(episodes):
+    """本迭代内每隔多少局打印一次进度（约 5%，夹在 1～50 之间）。"""
+    return max(1, min(50, episodes // 20))
+
+
 def _brain_file_for_side(side):
     if side == Board.STONE_BLACK:
         return BRAIN1_FILE
@@ -165,12 +170,27 @@ def _advance_episode_with_move(s1, episode, strategy, loc, explored):
     episode["game"].step_counter += 1
 
 
-def _play_reinforce_episodes(s1, s2, opponent, episodes, minmax_ratio, minmax_strategy=None, rand_strategy=None):
+def _play_reinforce_episodes(
+    s1,
+    s2,
+    opponent,
+    episodes,
+    minmax_ratio,
+    minmax_strategy=None,
+    rand_strategy=None,
+    progress_every=None,
+):
     minmax_games, rand_games = 0, 0
     wins = losses = draws = 0
     step_counter = explo_counter = 0
     started = completed = 0
     active_limit = min(episodes, RL_CONCURRENT_EPISODES)
+    if progress_every is None:
+        progress_step = _reinforce_progress_interval(episodes)
+    elif progress_every <= 0:
+        progress_step = 0
+    else:
+        progress_step = progress_every
 
     def new_episode():
         nonlocal minmax_games, rand_games, started
@@ -200,6 +220,12 @@ def _play_reinforce_episodes(s1, s2, opponent, episodes, minmax_ratio, minmax_st
         step_counter += game.step_counter
         explo_counter += game.exploration_counter
         completed += 1
+        if progress_step and completed % progress_step == 0:
+            print(
+                "  episodes %d/%d  win=%d lose=%d draw=%d"
+                % (completed, episodes, wins, losses, draws),
+                flush=True,
+            )
 
     def maybe_append_replacement(items):
         if started < episodes:
@@ -255,6 +281,7 @@ def run_reinforce(
     checkpoint_interval=25,
     minmax_curriculum=True,
     minmax_curriculum_iters=100,
+    progress_every=None,
 ):
     """强化学习主循环（无显示器环境；日志写入 ``summary/reinforce/``）。"""
     if opponent not in ("selfplay", "minmax"):
@@ -271,6 +298,8 @@ def run_reinforce(
         raise ValueError("checkpoint_interval must not be negative")
     if minmax_curriculum_iters < 0:
         raise ValueError("minmax_curriculum_iters must not be negative")
+    if progress_every is not None and progress_every < 0:
+        raise ValueError("progress_every must not be negative")
     try:
         from torch.utils.tensorboard import SummaryWriter
     except ImportError as exc:
@@ -321,11 +350,11 @@ def run_reinforce(
         minmax_ratio = 0.0
     try:
         for i in range(iter_n):
-            print("iter:", i)
+            episodes = episodes_per_iter or cfg.REINFORCE_PERIOD
+            print("iter:", i, "(%d episodes per iter)..." % (episodes,), flush=True)
             win1, win2, draw = 0, 0, 0
             step_counter, explo_counter = 0, 0
             minmax_games, rand_games = 0, 0
-            episodes = episodes_per_iter or cfg.REINFORCE_PERIOD
             (
                 win1,
                 win2,
@@ -342,6 +371,7 @@ def run_reinforce(
                 minmax_ratio,
                 minmax_strategy=minmax_strategy if opponent == "minmax" else None,
                 rand_strategy=rand_strategy if opponent == "minmax" else None,
+                progress_every=progress_every,
             )
             s1.win_ratio = _rl_win_ratio(win1, win2)
 
